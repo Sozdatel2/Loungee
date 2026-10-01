@@ -1,0 +1,72 @@
+# ─── Секреты ────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ─── Python ─────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ─── Виртуальные окружения ──────────────────────
+.venv/
+venv/
+ENV/
+env/
+.python-version
+
+# ─── База данных ────────────────────────────────
+data/
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+
+# ─── Логи ───────────────────────────────────────
+*.log
+logs/
+
+# ─── IDE / Редакторы ────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+
+# ─── OS ─────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── Кэш и временные ────────────────────────────
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.tox/
+.cache/
+
+# ─── Прочее ─────────────────────────────────────
+*.bak
+*.tmp
+*.old
