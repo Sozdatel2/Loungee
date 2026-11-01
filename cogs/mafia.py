@@ -8,6 +8,7 @@ import nextcord
 from nextcord import Interaction
 from nextcord.ext import commands
 from utils.roles import get_role
+from utils import CHIPS_WIN, CHIPS_LOSE
 from utils import embeds as E
 from database.db import record_game_result, ensure_player
 
@@ -32,9 +33,6 @@ class GameView(nextcord.ui.View):
 NIGHT_DURATION = 120
 DAY_DURATION = 300
 VOTE_DURATION = 60
-
-CHIPS_WIN = 15
-CHIPS_LOSE = 3
 
 
 EXECUTION_FLAVORS = [
@@ -139,7 +137,7 @@ class DayView(GameView):
             return
         if interaction.user.id != self.mg.host_id:
             return await interaction.response.send_message(
-                "Только хост может ускорить, сэр.", ephemeral=True
+                "Только ведущий может ускорить, сэр.", ephemeral=True
             )
         if not self.mg.accepts("day", self.round):
             return await interaction.response.send_message(
@@ -152,7 +150,7 @@ class DayView(GameView):
         if self.mg.cog and self.mg.channel:
             asyncio.create_task(self.mg.cog.start_vote(self.mg))
         self.stop()
-        await interaction.response.send_message("⏩ Хост ускорил обсуждение.", ephemeral=False)
+        await interaction.response.send_message("⏩ Ведущий ускорил обсуждение.", ephemeral=False)
 
 
 # ─────────────────────────────────────────────────────
@@ -848,7 +846,11 @@ class Mafia(commands.Cog):
 
         embed = nextcord.Embed(
             title=title,
-            description="\n".join(lines),
+            description=(
+                f"🏆 **Победившая сторона: {'Мафия' if winner == 'mafia' else 'Мирные жители'}.**\n"
+                "Победа засчитывается всей стороне, включая выбывших участников.\n\n"
+                + "\n".join(lines)
+            ),
             color=color,
         )
         embed.add_field(name="⏱ Длительность", value=duration_str, inline=True)

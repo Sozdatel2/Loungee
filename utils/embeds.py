@@ -1,4 +1,5 @@
 import nextcord
+from utils import GAME_NAMES
 
 GOLD = 0xC5A028
 DARK_RED = 0x8B0000
@@ -38,12 +39,8 @@ def lobby_embed(
         "mafia_lite": "🎭", "mafia_full": "🎭", "mafia": "🎭",
         "bunker": "🏚️", "spyfall": "🕵️", "custom": "🎲",
     }
-    labels = {
-        "mafia_lite": "Мафия Lite", "mafia_full": "Мафия Full", "mafia": "Мафия",
-        "bunker": "Bunker", "spyfall": "Spyfall", "custom": "Custom",
-    }
     icon = icons.get(game_type, "🎲")
-    label = labels.get(game_type, game_type.capitalize())
+    label = GAME_NAMES.get(game_type, game_type.capitalize())
 
     hint = ""
     if game_type == "mafia_lite":
@@ -56,7 +53,7 @@ def lobby_embed(
     embed = base_embed(
         title=f"{icon} Лобби: {label}",
         description=(
-            f"Хост: **{host_name}**\n\nПрисаживайтесь, господа.{hint}\n\n"
+            f"Ведущий: **{host_name}**\n\nПрисаживайтесь, господа.{hint}\n\n"
             "*⏱ Лобби закроется через 15 минут бездействия.*"
         ),
         guild_name=guild_name,
@@ -165,7 +162,7 @@ def day_embed(
         title=f"☀️ День {day} — Обсуждение",
         description=(
             "Город просыпается. У вас **5 минут**, чтобы обсудить, кто мафия.\n"
-            "Когда будете готовы — хост может нажать **«К голосованию»**."
+            "Когда будете готовы — ведущий может нажать **«К голосованию»**."
         ),
         color=GOLD,
     )

@@ -1,9 +1,10 @@
 import nextcord
 from nextcord import Interaction
 from nextcord.ext import commands
-from database.db import get_player, ensure_player, get_top_players
+from database.db import get_player, get_top_players
 from database.manager import game_manager
-from utils.embeds import base_embed, GOLD
+from utils.embeds import base_embed
+from utils import VERSION, CHIPS_WIN, CHIPS_LOSE, GAME_NAMES
 
 class Lobby(commands.Cog):
     """Общее лобби — приветствие, help, инфо, профиль, топ."""
@@ -15,11 +16,12 @@ class Lobby(commands.Cog):
     async def lounge(self, interaction: Interaction):
         guild_name = interaction.guild.name if interaction.guild else "Lounge"
         embed = base_embed(
-            title="🎩 Lounge",
+            title=f"🎩 Lounge • {VERSION}",
             description=(
                 "*Good Games Only.*\n\n"
                 "Ваш вечерний распорядитель для настолок.\n"
-                "Мафия, Бункер и прочие игры — присаживайтесь, господа."
+                "Мафия Lite и Full — присаживайтесь, господа.\n"
+                "Бункер и Своя игра пока доступны только как заготовки лобби."
             ),
             guild_name=guild_name,
         )
@@ -29,11 +31,40 @@ class Lobby(commands.Cog):
                 "`/lounge` — эта справка\n"
                 "`/ping` — проверить связь\n"
                 "`/game-start` — создать лобби\n"
-                "`/game-cancel` — отменить лобби\n"
+                "`/game-cancel` — ведущему: отменить лобби или Мафию\n"
                 "`/profile` — карточка игрока\n"
                 "`/top` — топ по фишкам\n"
                 "`/active` — активные игры на сервере"
             ),
+            inline=False,
+        )
+        embed.add_field(
+            name="🎭 Режимы и роли",
+            value=(
+                "**Lite · 4–6 игроков:** мафия и мирные.\n"
+                "**Full · 7–15 игроков:** мафия, мирные, комиссар и доктор.\n"
+                "🎩 Мафия выбирает жертву ночью.\n"
+                "👤 Мирные ищут мафию и голосуют днём.\n"
+                "🕵️ Комиссар проверяет одного игрока за ночь.\n"
+                "💉 Доктор лечит одного игрока; себя — не две ночи подряд."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="📖 Как проходит партия",
+            value=(
+                "Роли приходят в ЛС — разрешите сообщения от бота.\n"
+                "Ночь → обсуждение → тайное голосование. Ведущий может ускорить обсуждение.\n"
+                "Мирные побеждают, когда мафии не осталось. Мафия — когда её живых "
+                "участников не меньше, чем остальных живых игроков.\n"
+                "Голос за себя считается воздержанием; при дневной ничьей казни нет."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="🪙 Награды за завершённую Мафию",
+            value=(f"Победителям — **{CHIPS_WIN} фишек**, проигравшим — **{CHIPS_LOSE}**.\n"
+                   "При отмене награды не начисляются. Профиль и рейтинг отдельные на каждом сервере."),
             inline=False,
         )
         await interaction.response.send_message(embed=embed)
@@ -58,13 +89,15 @@ class Lobby(commands.Cog):
 
         embed = base_embed(
             title=f"🎩 Профиль: {username}",
-            description="Джентльмен за столом.",
+            description="Ваша история за игровым столом, сэр.",
             guild_name=guild_name,
         )
         embed.set_thumbnail(url=target.display_avatar.url)
         embed.add_field(name="🎲 Партий", value=f"`{played}`", inline=True)
         embed.add_field(name="🏆 Побед", value=f"`{won}`", inline=True)
         embed.add_field(name="🪙 Фишек", value=f"`{chips}`", inline=True)
+        win_rate = f"{won / played * 100:.1f}%" if played else "— (ещё нет партий)"
+        embed.add_field(name="📊 Процент побед", value=win_rate, inline=True)
 
         await interaction.response.send_message(embed=embed)
 
@@ -77,7 +110,7 @@ class Lobby(commands.Cog):
             return await interaction.response.send_message(
                 embed=base_embed(
                     title="🏆 Топ игроков",
-                    description="Пока никто не играл. Тишина, сэр.",
+                    description="Пока никто не играл, сэр. Самое время открыть первый стол.",
                     guild_name=guild_name,
                 )
             )
@@ -116,12 +149,6 @@ class Lobby(commands.Cog):
                 )
             )
 
-        game_names = {
-            "mafia_lite": "Мафия Lite",
-            "mafia_full": "Мафия Full",
-            "bunker": "Бункер",
-            "custom": "Своя игра",
-        }
         status_names = {
             "lobby": "Сбор игроков",
             "starting": "Запуск игры",
@@ -139,11 +166,11 @@ class Lobby(commands.Cog):
         for g in games:
             game_type = getattr(g, "game_type", None) or f"mafia_{g.mode}"
             state = getattr(g, "state", None) or g.phase
-            game_name = game_names.get(game_type, game_type)
+            game_name = GAME_NAMES.get(game_type, game_type)
             status = status_names.get(state, state)
             lines.append(
                 f"• **{game_name}** в <#{g.channel_id}> — "
-                f"{len(g.players)} игрок(ов), хост <@{g.host_id}>, статус **{status}**"
+                f"{len(g.players)} игрок(ов), ведущий <@{g.host_id}>, статус **{status}**"
             )
 
         embed = base_embed(

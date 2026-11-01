@@ -83,4 +83,4 @@ class InitializationTests(unittest.IsolatedAsyncioTestCase):
             await view.to_vote.callback(i)
             await asyncio.sleep(0)
         i.response.send_message.assert_awaited_once_with(
-            '⏩ Хост ускорил обсуждение.', ephemeral=False)
+            '⏩ Ведущий ускорил обсуждение.', ephemeral=False)

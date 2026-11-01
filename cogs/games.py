@@ -5,6 +5,7 @@ import nextcord
 from nextcord import Interaction
 from nextcord.ext import commands, tasks
 from database.manager import game_manager
+from utils import GAME_NAMES
 from utils.embeds import lobby_embed, error_embed, success_embed, lobby_timeout_embed
 
 
@@ -81,7 +82,7 @@ class LobbyView(nextcord.ui.View):
             )
         if not game.add_player(interaction.user.id):
             return await interaction.response.send_message(
-                embed=error_embed("Ты уже за столом, сэр."), ephemeral=True
+                embed=error_embed("Вы уже за столом, сэр."), ephemeral=True
             )
 
         game.refresh_timer(LOBBY_TIMEOUT)   # продлеваем при активности
@@ -97,16 +98,16 @@ class LobbyView(nextcord.ui.View):
             return
         if interaction.user.id == game.host_id:
             return await interaction.response.send_message(
-                embed=error_embed("Хост не может выйти. Отмени лобби."), ephemeral=True
+                embed=error_embed("Ведущий не может выйти. Отмените лобби, сэр."), ephemeral=True
             )
         if not game.remove_player(interaction.user.id):
             return await interaction.response.send_message(
-                embed=error_embed("Тебя нет за столом."), ephemeral=True
+                embed=error_embed("Вас нет за столом, сэр."), ephemeral=True
             )
         game.refresh_timer(LOBBY_TIMEOUT)   # продлеваем при активности
         await interaction.message.edit(embed=self._update_embed())
         await interaction.response.send_message(
-            embed=success_embed("Ты покинул стол."), ephemeral=True
+            embed=success_embed("Вы покинули стол, сэр."), ephemeral=True
         )
 
     @nextcord.ui.button(label="Начать", style=nextcord.ButtonStyle.primary, emoji="▶️")
@@ -116,7 +117,7 @@ class LobbyView(nextcord.ui.View):
             return
         if interaction.user.id != game.host_id:
             return await interaction.response.send_message(
-                embed=error_embed("Только хост может начать."), ephemeral=True
+                embed=error_embed("Только ведущий может начать."), ephemeral=True
             )
 
         n = len(game.players)
@@ -126,7 +127,7 @@ class LobbyView(nextcord.ui.View):
         if n < min_p:
             return await interaction.response.send_message(
                 embed=error_embed(
-                    f"Мало игроков, сэр. Для **{game.game_type}** минимум **{min_p}**, у вас **{n}**."
+                    f"Мало игроков, сэр. Для **{GAME_NAMES.get(game.game_type, game.game_type)}** минимум **{min_p}**, у вас **{n}**."
                 ),
                 ephemeral=True,
             )
@@ -136,7 +137,7 @@ class LobbyView(nextcord.ui.View):
             mafia_cog = self._bot.get_cog("Mafia") if self._bot else None
             if not mafia_cog:
                 return await interaction.response.send_message(
-                    embed=error_embed("Ког Мафии не загружен. Проверь лог."), ephemeral=True
+                    embed=error_embed("Мафия сейчас недоступна, сэр. Сообщите администратору."), ephemeral=True
                 )
 
             mode = "lite" if game.game_type == "mafia_lite" else "full"
@@ -165,7 +166,7 @@ class LobbyView(nextcord.ui.View):
         # ─── Другие игры (заглушка) ────────────────
         game.state = "playing"
         await interaction.response.send_message(
-            embed=success_embed(f"🎲 Игра **{game.game_type}** началась! (заглушка)")
+            embed=success_embed(f"🎲 Игра **{GAME_NAMES.get(game.game_type, game.game_type)}** началась! (заглушка)")
         )
 
     @nextcord.ui.button(label="Отменить", style=nextcord.ButtonStyle.danger, emoji="✖️")
@@ -175,11 +176,11 @@ class LobbyView(nextcord.ui.View):
             return
         if interaction.user.id != game.host_id:
             return await interaction.response.send_message(
-                embed=error_embed("Только хост может отменить."), ephemeral=True
+                embed=error_embed("Только ведущий может отменить."), ephemeral=True
             )
         game_manager.remove(self.channel_id)
         await interaction.message.edit(
-            embed=error_embed("Лобби отменено хостом."), view=None
+            embed=error_embed("Лобби отменено ведущим."), view=None
         )
         await interaction.response.send_message("Лобби закрыто.", ephemeral=True)
 
@@ -303,7 +304,7 @@ class Games(commands.Cog):
         if game is None and mafia_game is not None:
             if interaction.user.id != mafia_game.host_id:
                 return await interaction.response.send_message(
-                    embed=error_embed("Только хост может отменить."), ephemeral=True
+                    embed=error_embed("Только ведущий может отменить."), ephemeral=True
                 )
             if mafia_cog.cancel_game(interaction.channel_id):
                 return await interaction.response.send_message(
@@ -315,7 +316,7 @@ class Games(commands.Cog):
             )
         if interaction.user.id != game.host_id:
             return await interaction.response.send_message(
-                embed=error_embed("Только хост может отменить."), ephemeral=True
+                embed=error_embed("Только ведущий может отменить."), ephemeral=True
             )
         if game.state == "starting":
             return await interaction.response.send_message(
