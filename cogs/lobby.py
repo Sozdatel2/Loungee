@@ -103,6 +103,10 @@ class Lobby(commands.Cog):
         guild_name = interaction.guild.name if interaction.guild else "Lounge"
         games = game_manager.list_active(guild_id=interaction.guild_id)
 
+        mafia = self.bot.get_cog("Mafia")
+        if mafia:
+            games.extend(g for g in mafia.games.values() if g.guild_id == interaction.guild_id)
+
         if not games:
             return await interaction.response.send_message(
                 embed=base_embed(
@@ -114,9 +118,11 @@ class Lobby(commands.Cog):
 
         lines = []
         for g in games:
+            game_type = getattr(g, "game_type", None) or f"mafia_{g.mode}"
+            state = getattr(g, "state", None) or g.phase
             lines.append(
-                f"• **{g.game_type}** в <#{g.channel_id}> — "
-                f"{len(g.players)} игрок(ов), хост <@{g.host_id}>, статус `{g.state}`"
+                f"• **{game_type}** в <#{g.channel_id}> — "
+                f"{len(g.players)} игрок(ов), хост <@{g.host_id}>, статус `{state}`"
             )
 
         embed = base_embed(

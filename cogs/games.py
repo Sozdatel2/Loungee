@@ -257,9 +257,20 @@ class Games(commands.Cog):
         msg = await interaction.original_message()
         g.message_id = msg.id
 
-    @nextcord.slash_command(name="game-cancel", description="Отменить текущее лобби")
+    @nextcord.slash_command(name="game-cancel", description="Отменить текущее лобби или Мафию")
     async def game_cancel(self, interaction: Interaction):
         game = game_manager.get(interaction.channel_id)
+        mafia_cog = self.bot.get_cog("Mafia")
+        mafia_game = mafia_cog.get_game(interaction.channel_id) if mafia_cog else None
+        if game is None and mafia_game is not None:
+            if interaction.user.id != mafia_game.host_id:
+                return await interaction.response.send_message(
+                    embed=error_embed("Только хост может отменить."), ephemeral=True
+                )
+            if mafia_cog.cancel_game(interaction.channel_id):
+                return await interaction.response.send_message(
+                    embed=success_embed("Мафия отменена. Результаты и фишки не начисляются.")
+                )
         if not game:
             return await interaction.response.send_message(
                 embed=error_embed("В этом канале нет активной игры."), ephemeral=True

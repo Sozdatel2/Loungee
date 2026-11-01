@@ -39,11 +39,12 @@ class NightActionView(nextcord.ui.View):
     def __init__(self, mafia_game, actor_id: int, action: str):
         super().__init__(timeout=NIGHT_DURATION + 30)
         self.mg = mafia_game
+        self.round = mafia_game.day
         self.actor_id = actor_id
         self.action = action
         self.chosen = None
 
-        candidates = [uid for uid in self.mg.alive if uid != actor_id]
+        candidates = self.mg.action_targets(action, actor_id)
 
         for uid in candidates[:25]:
             btn = nextcord.ui.Button(
@@ -65,8 +66,12 @@ class NightActionView(nextcord.ui.View):
                     "Вы уже сделали выбор, сэр.", ephemeral=True
                 )
 
+            if not self.mg.register_action(self.action, self.actor_id, uid, self.round):
+                return await interaction.response.send_message(
+                    "Это действие уже недоступно, сэр.", ephemeral=True
+                )
             self.chosen = uid
-            self.mg.register_action(self.action, self.actor_id, uid)
+            self.mg.maybe_finish_night()
 
             if self.action == "kill":
                 await interaction.response.send_message(
@@ -80,7 +85,6 @@ class NightActionView(nextcord.ui.View):
                 )
             elif self.action == "check":
                 is_mafia = self.mg.role_of(uid) == "mafia"
-                self.mg.cop_checks[uid] = is_mafia
                 await interaction.response.send_message(
                     embed=E.cop_result_embed(self.mg.short_name(uid), is_mafia),
                     ephemeral=True,
@@ -93,7 +97,6 @@ class NightActionView(nextcord.ui.View):
             except Exception:
                 pass
 
-            self.mg.maybe_finish_night()
 
         return callback
 
@@ -105,6 +108,7 @@ class DayView(nextcord.ui.View):
     def __init__(self, mafia_game):
         super().__init__(timeout=DAY_DURATION + 30)
         self.mg = mafia_game
+        self.round = mafia_game.day
 
     @nextcord.ui.button(label="К голосованию", style=nextcord.ButtonStyle.primary, emoji="🗳️")
     async def to_vote(self, button: nextcord.ui.Button, interaction: Interaction):
@@ -112,7 +116,7 @@ class DayView(nextcord.ui.View):
             return await interaction.response.send_message(
                 "Только хост может ускорить, сэр.", ephemeral=True
             )
-        if self.mg.phase != "day":
+        if not self.mg.accepts("day", self.round):
             return await interaction.response.send_message(
                 "Уже не день, сэр.", ephemeral=True
             )
@@ -120,10 +124,10 @@ class DayView(nextcord.ui.View):
         for task in self.mg._day_tasks:
             if not task.done():
                 task.cancel()
-        await interaction.response.send_message("⏩ Хост ускорил обсуждение.", ephemeral=True)
         if self.mg.cog and self.mg.channel:
             asyncio.create_task(self.mg.cog.start_vote(self.mg))
         self.stop()
+        await interaction.response.send_message("⏩ Хост ускорил обсуждение.", ephemeral=True)
 
 
 # ─────────────────────────────────────────────────────
@@ -133,6 +137,7 @@ class VoteView(nextcord.ui.View):
     def __init__(self, mafia_game):
         super().__init__(timeout=VOTE_DURATION + 30)
         self.mg = mafia_game
+        self.round = mafia_game.day
 
         for uid in list(self.mg.alive):
             btn = nextcord.ui.Button(
@@ -155,6 +160,8 @@ class VoteView(nextcord.ui.View):
     def _make_vote_callback(self, target_id: int):
         async def callback(interaction: Interaction):
             voter_id = interaction.user.id
+            if not self.mg.accepts("vote", self.round) or target_id not in self.mg.alive:
+                return await interaction.response.send_message("Голосование уже недоступно, сэр.", ephemeral=True)
             if voter_id not in self.mg.alive:
                 return await interaction.response.send_message(
                     "Мёртвые не голосуют, сэр.", ephemeral=True
@@ -167,24 +174,26 @@ class VoteView(nextcord.ui.View):
             # ─── Голос за себя = воздержание ───
             if target_id == voter_id:
                 self.mg.votes[voter_id] = -1
+                self.mg.maybe_finish_vote()
                 await interaction.response.send_message(
                     "🤐 За себя нельзя, сэр. Ваш голос засчитан как **воздержание**.",
                     ephemeral=True,
                 )
-                self.mg.maybe_finish_vote()
                 return
 
             self.mg.votes[voter_id] = target_id
+            self.mg.maybe_finish_vote()
             await interaction.response.send_message(
                 f"🗳️ Голос за **{self.mg.short_name(target_id)}** принят.",
                 ephemeral=True,
             )
-            self.mg.maybe_finish_vote()
 
         return callback
 
     async def _abstain_callback(self, interaction: Interaction):
         voter_id = interaction.user.id
+        if not self.mg.accepts("vote", self.round):
+            return await interaction.response.send_message("Голосование уже недоступно, сэр.", ephemeral=True)
         if voter_id not in self.mg.alive:
             return await interaction.response.send_message(
                 "Мёртвые не голосуют, сэр.", ephemeral=True
@@ -194,10 +203,10 @@ class VoteView(nextcord.ui.View):
                 "Вы уже голосовали, сэр.", ephemeral=True
             )
         self.mg.votes[voter_id] = -1
+        self.mg.maybe_finish_vote()
         await interaction.response.send_message(
             "🤐 Вы воздержались.", ephemeral=True
         )
-        self.mg.maybe_finish_vote()
 
 
 # ─────────────────────────────────────────────────────
@@ -223,6 +232,7 @@ class MafiaGame:
 
         self.mafia_votes: dict[int, int] = {}
         self.doctor_target = None
+        self.last_self_heal_day = None
         self.cop_checks: dict[int, bool] = {}
 
         self.votes: dict[int, int] = {}
@@ -294,14 +304,45 @@ class MafiaGame:
         return [(self.mention(uid), reason) for uid, reason in self.dead_log]
 
     # ─── Ночные действия ─────────────────────────────
-    def register_action(self, action: str, actor_id: int, target_id: int) -> None:
+    def accepts(self, phase: str, round_number: int) -> bool:
+        if self.phase != phase or self.day != round_number:
+            return False
+        if getattr(self, f"_{phase}_finished", False):
+            return False
+        return self.cog is None or self.cog.get_game(self.channel_id) is self
+
+    def action_targets(self, action: str, actor_id: int) -> list[int]:
+        return [uid for uid in sorted(self.alive)
+                if uid != actor_id or (
+                    action == "heal" and self.last_self_heal_day != self.day - 1
+                )]
+
+    def register_action(self, action: str, actor_id: int, target_id: int,
+                        round_number: int | None = None) -> bool:
+        if not self.accepts("night", self.day if round_number is None else round_number):
+            return False
+        role = {"kill": "mafia", "heal": "doctor", "check": "cop"}.get(action)
+        if (role is None or actor_id not in self.alive or self.role_of(actor_id) != role
+                or target_id not in self.action_targets(action, actor_id)):
+            return False
         if action == "kill":
+            if actor_id in self.mafia_votes:
+                return False
             self.mafia_votes[actor_id] = target_id
         elif action == "heal":
+            if self.doctor_target is not None:
+                return False
             self.doctor_target = target_id
+            if target_id == actor_id:
+                self.last_self_heal_day = self.day
+        elif action == "check":
+            if self.cop_checks:
+                return False
+            self.cop_checks[target_id] = self.role_of(target_id) == "mafia"
+        return True
 
     def expected_night_actions(self) -> int:
-        count = len(self.mafia_ids())
+        count = sum(uid in self.alive for uid in self.mafia_ids())
         if self.mode == "full":
             if self._alive_role("cop"):
                 count += 1
@@ -322,7 +363,7 @@ class MafiaGame:
         return count
 
     def maybe_finish_night(self) -> None:
-        if self._night_finished:
+        if not self.accepts("night", self.day):
             return
         if self.received_night_actions() >= self.expected_night_actions():
             self._night_finished = True
@@ -333,7 +374,7 @@ class MafiaGame:
                 asyncio.create_task(self.cog.resolve_night(self))
 
     def maybe_finish_vote(self) -> None:
-        if self._vote_finished:
+        if not self.accepts("vote", self.day):
             return
         if len(self.votes) >= len(self.alive):
             self._vote_finished = True
@@ -356,7 +397,23 @@ class Mafia(commands.Cog):
         return self.games.get(channel_id)
 
     def remove_game(self, channel_id: int) -> None:
-        self.games.pop(channel_id, None)
+        game = self.games.pop(channel_id, None)
+        if game:
+            for task in game._night_tasks + game._day_tasks + game._vote_tasks:
+                if task is not asyncio.current_task() and not task.done():
+                    task.cancel()
+
+    def cancel_game(self, channel_id: int) -> bool:
+        game = self.get_game(channel_id)
+        if game is None or game.phase in ("ended", "cancelled"):
+            return False
+        game.phase = "cancelled"
+        self.remove_game(channel_id)
+        return True
+
+    def cog_unload(self):
+        for channel_id in tuple(self.games):
+            self.cancel_game(channel_id)
 
     def has_active_game(self, channel_id: int) -> bool:
         return channel_id in self.games
@@ -364,6 +421,8 @@ class Mafia(commands.Cog):
     # ─── Запуск партии ───────────────────────────────
     async def start_game(self, interaction: Interaction, mode: str, players: list[int]) -> None:
         channel_id = interaction.channel_id
+        if self.has_active_game(channel_id):
+            return
         host_id = interaction.user.id
         guild_id = interaction.guild_id
 
@@ -389,6 +448,8 @@ class Mafia(commands.Cog):
             await ensure_player(guild_id, uid, username)
 
         for uid in players:
+            if self.get_game(channel_id) is not game:
+                return
             role_key = game.role_of(uid)
             role = get_role(role_key)
             embed = nextcord.Embed(
@@ -409,15 +470,25 @@ class Mafia(commands.Cog):
             try:
                 user = guild.get_member(uid) or await self.bot.fetch_user(uid)
                 await user.send(embed=embed)
-            except nextcord.Forbidden:
+            except nextcord.HTTPException:
                 failed_dm.append(uid)
 
         game.day = 1
-        game.phase = "night"
-        await self.start_night(game, failed_dm=failed_dm)
+        if failed_dm:
+            game.phase = "cancelled"
+            self.remove_game(channel_id)
+            await game.channel.send(
+                "❌ Партия отменена: не удалось отправить роли "
+                + " ".join(f"<@{uid}>" for uid in failed_dm)
+                + ". Откройте ЛС и создайте новое лобби. Роли будут распределены заново."
+            )
+            return
+        await self.start_night(game)
 
     # ─── НОЧЬ ────────────────────────────────────────
     async def start_night(self, game: MafiaGame, failed_dm: list[int] = None) -> None:
+        if game.phase not in ("setup", "resolving_vote") or self.get_game(game.channel_id) is not game:
+            return
         game.phase = "night"
         game.mafia_votes.clear()
         game.doctor_target = None
@@ -436,6 +507,8 @@ class Mafia(commands.Cog):
             )
 
         for uid in list(game.alive):
+            if not game.accepts("night", game.day):
+                return
             role = game.role_of(uid)
             try:
                 user = game.channel.guild.get_member(uid) or await self.bot.fetch_user(uid)
@@ -468,6 +541,8 @@ class Mafia(commands.Cog):
                 except nextcord.Forbidden:
                     pass
 
+        if not game.accepts("night", game.day):
+            return
         task = asyncio.create_task(self._night_timer(game))
         game._night_tasks.append(task)
 
@@ -476,12 +551,14 @@ class Mafia(commands.Cog):
             await asyncio.sleep(NIGHT_DURATION)
         except asyncio.CancelledError:
             return
-        if not game._night_finished:
+        if game.accepts("night", game.day):
             game._night_finished = True
             await self.resolve_night(game)
 
     # ─── РАЗРЕШЕНИЕ НОЧИ ─────────────────────────────
     async def resolve_night(self, game: MafiaGame) -> None:
+        if game.phase != "night" or self.get_game(game.channel_id) is not game:
+            return
         game.phase = "resolving"
 
         victim_id = None
@@ -511,6 +588,8 @@ class Mafia(commands.Cog):
 
     # ─── ДЕНЬ ────────────────────────────────────────
     async def start_day(self, game: MafiaGame) -> None:
+        if game.phase != "resolving" or self.get_game(game.channel_id) is not game:
+            return
         game.phase = "day"
         game.votes.clear()
         game._day_finished = False
@@ -523,6 +602,8 @@ class Mafia(commands.Cog):
         view = DayView(game)
         await game.channel.send(embed=embed, view=view)
 
+        if not game.accepts("day", game.day):
+            return
         task = asyncio.create_task(self._day_timer(game))
         game._day_tasks.append(task)
 
@@ -531,12 +612,14 @@ class Mafia(commands.Cog):
             await asyncio.sleep(DAY_DURATION)
         except asyncio.CancelledError:
             return
-        if not game._day_finished:
+        if game.accepts("day", game.day):
             game._day_finished = True
             await self.start_vote(game)
 
     # ─── ГОЛОСОВАНИЕ ─────────────────────────────────
     async def start_vote(self, game: MafiaGame) -> None:
+        if game.phase != "day" or self.get_game(game.channel_id) is not game:
+            return
         game.phase = "vote"
         game.votes.clear()
         game._vote_finished = False
@@ -547,6 +630,8 @@ class Mafia(commands.Cog):
         view = VoteView(game)
         await game.channel.send(embed=embed, view=view)
 
+        if not game.accepts("vote", game.day):
+            return
         task = asyncio.create_task(self._vote_timer(game))
         game._vote_tasks.append(task)
 
@@ -555,12 +640,14 @@ class Mafia(commands.Cog):
             await asyncio.sleep(VOTE_DURATION)
         except asyncio.CancelledError:
             return
-        if not game._vote_finished:
+        if game.accepts("vote", game.day):
             game._vote_finished = True
             await self.resolve_vote(game)
 
     # ─── РАЗРЕШЕНИЕ ГОЛОСОВАНИЯ ──────────────────────
     async def resolve_vote(self, game: MafiaGame) -> None:
+        if game.phase != "vote" or self.get_game(game.channel_id) is not game:
+            return
         game.phase = "resolving_vote"
         guild_name = game.channel.guild.name if game.channel.guild else "Lounge"
 
@@ -619,6 +706,8 @@ class Mafia(commands.Cog):
         await self._next_night(game)
 
     async def _next_night(self, game: MafiaGame) -> None:
+        if game.phase != "resolving_vote" or self.get_game(game.channel_id) is not game:
+            return
         game.day += 1
         await self.start_night(game)
 
@@ -634,6 +723,8 @@ class Mafia(commands.Cog):
         return None
 
     async def end_game(self, game: MafiaGame, winner: str) -> None:
+        if game.phase in ("ended", "cancelled") or self.get_game(game.channel_id) is not game:
+            return
         game.phase = "ended"
         game.finished_at = time.time()
         duration_sec = int(game.finished_at - game.created_at)
@@ -698,8 +789,10 @@ class Mafia(commands.Cog):
         )
         embed.set_footer(text=f"{guild_name} • Good Games Only")
 
-        await game.channel.send(embed=embed)
-        self.remove_game(game.channel_id)
+        try:
+            await game.channel.send(embed=embed)
+        finally:
+            self.remove_game(game.channel_id)
 
 
 def setup(bot: commands.Bot):
