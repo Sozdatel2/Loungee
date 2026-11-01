@@ -133,8 +133,8 @@ class MafiaTests(unittest.IsolatedAsyncioTestCase):
         i.guild = SimpleNamespace(name='test')
         await Lobby.active.callback(lobby, i)
         embed = i.response.send_message.call_args.kwargs['embed']
-        self.assertIn('mafia_full', embed.description)
-        self.assertIn('night', embed.description)
+        self.assertIn('Мафия Full', embed.description)
+        self.assertIn('Ночь', embed.description)
 
     async def test_failed_role_delivery_cancels_start(self):
         import nextcord

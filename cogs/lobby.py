@@ -116,13 +116,34 @@ class Lobby(commands.Cog):
                 )
             )
 
+        game_names = {
+            "mafia_lite": "Мафия Lite",
+            "mafia_full": "Мафия Full",
+            "bunker": "Бункер",
+            "custom": "Своя игра",
+        }
+        status_names = {
+            "lobby": "Сбор игроков",
+            "starting": "Запуск игры",
+            "playing": "В игре",
+            "setup": "Подготовка",
+            "night": "Ночь",
+            "day": "Обсуждение",
+            "vote": "Голосование",
+            "resolving": "Итоги ночи",
+            "resolving_vote": "Итоги голосования",
+            "ended": "Завершена",
+            "cancelled": "Отменена",
+        }
         lines = []
         for g in games:
             game_type = getattr(g, "game_type", None) or f"mafia_{g.mode}"
             state = getattr(g, "state", None) or g.phase
+            game_name = game_names.get(game_type, game_type)
+            status = status_names.get(state, state)
             lines.append(
-                f"• **{game_type}** в <#{g.channel_id}> — "
-                f"{len(g.players)} игрок(ов), хост <@{g.host_id}>, статус `{state}`"
+                f"• **{game_name}** в <#{g.channel_id}> — "
+                f"{len(g.players)} игрок(ов), хост <@{g.host_id}>, статус **{status}**"
             )
 
         embed = base_embed(
