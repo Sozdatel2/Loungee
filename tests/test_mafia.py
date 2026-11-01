@@ -18,7 +18,7 @@ def game():
 
 def interaction(uid, game_id="unused"):
 
-    return SimpleNamespace(data={"custom_id": f"test:{game_id}:target"},
+    return SimpleNamespace(guild_id=1, data={"custom_id": f"test:{game_id}:target"},
                            user=SimpleNamespace(id=uid),
                            response=SimpleNamespace(send_message=AsyncMock()),
                            message=SimpleNamespace(edit=AsyncMock()))
