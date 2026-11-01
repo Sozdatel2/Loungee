@@ -2,12 +2,31 @@ import asyncio
 import json
 import random
 import time
+import uuid
+import logging
 import nextcord
 from nextcord import Interaction
 from nextcord.ext import commands
 from utils.roles import get_role
 from utils import embeds as E
 from database.db import add_game_result, save_game, ensure_player
+
+
+log = logging.getLogger(__name__)
+
+
+class GameView(nextcord.ui.View):
+    async def validate_game(self, interaction: Interaction) -> bool:
+        custom_id = (interaction.data or {}).get("custom_id", "")
+        parts = custom_id.split(":")
+        current = self.mg.cog.get_game(self.mg.channel_id) if self.mg.cog else self.mg
+        if (len(parts) < 2 or parts[1] != self.mg.game_id
+                or current is not self.mg):
+            await interaction.response.send_message(
+                "Это кнопки от старой игры, сэр", ephemeral=True
+            )
+            return False
+        return True
 
 
 NIGHT_DURATION = 120
@@ -35,7 +54,7 @@ EXECUTION_FLAVORS = [
 # ─────────────────────────────────────────────────────
 #  View: ночное действие
 # ─────────────────────────────────────────────────────
-class NightActionView(nextcord.ui.View):
+class NightActionView(GameView):
     def __init__(self, mafia_game, actor_id: int, action: str):
         super().__init__(timeout=NIGHT_DURATION + 30)
         self.mg = mafia_game
@@ -50,13 +69,15 @@ class NightActionView(nextcord.ui.View):
             btn = nextcord.ui.Button(
                 label=self.mg.short_name(uid),
                 style=nextcord.ButtonStyle.secondary,
-                custom_id=f"{action}:{uid}",
+                custom_id=f"{action}:{self.mg.game_id}:{uid}",
             )
             btn.callback = self._make_callback(uid)
             self.add_item(btn)
 
     def _make_callback(self, uid: int):
         async def callback(interaction: Interaction):
+            if not await self.validate_game(interaction):
+                return
             if interaction.user.id != self.actor_id:
                 return await interaction.response.send_message(
                     "Это не ваша кнопка, сэр.", ephemeral=True
@@ -104,14 +125,18 @@ class NightActionView(nextcord.ui.View):
 # ─────────────────────────────────────────────────────
 #  View: день
 # ─────────────────────────────────────────────────────
-class DayView(nextcord.ui.View):
+class DayView(GameView):
     def __init__(self, mafia_game):
         super().__init__(timeout=DAY_DURATION + 30)
         self.mg = mafia_game
         self.round = mafia_game.day
 
+        self.to_vote.custom_id = f"day:{self.mg.game_id}:vote"
+
     @nextcord.ui.button(label="К голосованию", style=nextcord.ButtonStyle.primary, emoji="🗳️")
     async def to_vote(self, button: nextcord.ui.Button, interaction: Interaction):
+        if not await self.validate_game(interaction):
+            return
         if interaction.user.id != self.mg.host_id:
             return await interaction.response.send_message(
                 "Только хост может ускорить, сэр.", ephemeral=True
@@ -133,7 +158,7 @@ class DayView(nextcord.ui.View):
 # ─────────────────────────────────────────────────────
 #  View: голосование
 # ─────────────────────────────────────────────────────
-class VoteView(nextcord.ui.View):
+class VoteView(GameView):
     def __init__(self, mafia_game):
         super().__init__(timeout=VOTE_DURATION + 30)
         self.mg = mafia_game
@@ -143,7 +168,7 @@ class VoteView(nextcord.ui.View):
             btn = nextcord.ui.Button(
                 label=self.mg.short_name(uid),
                 style=nextcord.ButtonStyle.secondary,
-                custom_id=f"vote:{uid}",
+                custom_id=f"vote:{self.mg.game_id}:{uid}",
             )
             btn.callback = self._make_vote_callback(uid)
             self.add_item(btn)
@@ -152,13 +177,15 @@ class VoteView(nextcord.ui.View):
             label="Воздержаться",
             style=nextcord.ButtonStyle.danger,
             emoji="🤐",
-            custom_id="vote:abstain",
+            custom_id=f"vote:{self.mg.game_id}:abstain",
         )
         abstain.callback = self._abstain_callback
         self.add_item(abstain)
 
     def _make_vote_callback(self, target_id: int):
         async def callback(interaction: Interaction):
+            if not await self.validate_game(interaction):
+                return
             voter_id = interaction.user.id
             if not self.mg.accepts("vote", self.round) or target_id not in self.mg.alive:
                 return await interaction.response.send_message("Голосование уже недоступно, сэр.", ephemeral=True)
@@ -191,6 +218,8 @@ class VoteView(nextcord.ui.View):
         return callback
 
     async def _abstain_callback(self, interaction: Interaction):
+        if not await self.validate_game(interaction):
+            return
         voter_id = interaction.user.id
         if not self.mg.accepts("vote", self.round):
             return await interaction.response.send_message("Голосование уже недоступно, сэр.", ephemeral=True)
@@ -214,6 +243,7 @@ class VoteView(nextcord.ui.View):
 # ─────────────────────────────────────────────────────
 class MafiaGame:
     def __init__(self, mode: str, guild_id: int, channel_id: int, host_id: int, players: list[int]):
+        self.game_id: str = uuid.uuid4().hex
         self.mode = mode
         self.guild_id = guild_id
         self.channel_id = channel_id
@@ -246,6 +276,11 @@ class MafiaGame:
 
         self.channel = None
         self.cog = None
+
+    def cancel_timers(self) -> None:
+        for task in self._night_tasks + self._day_tasks + self._vote_tasks:
+            if task is not asyncio.current_task() and not task.done():
+                task.cancel()
 
     # ─── Роли ────────────────────────────────────────
     def assign_roles(self) -> None:
@@ -399,9 +434,7 @@ class Mafia(commands.Cog):
     def remove_game(self, channel_id: int) -> None:
         game = self.games.pop(channel_id, None)
         if game:
-            for task in game._night_tasks + game._day_tasks + game._vote_tasks:
-                if task is not asyncio.current_task() and not task.done():
-                    task.cancel()
+            game.cancel_timers()
 
     def cancel_game(self, channel_id: int) -> bool:
         game = self.get_game(channel_id)
@@ -417,6 +450,29 @@ class Mafia(commands.Cog):
 
     def has_active_game(self, channel_id: int) -> bool:
         return channel_id in self.games
+
+    async def _abort_game(self, game: MafiaGame, error: Exception) -> None:
+        log.error(f"Сбой в фазе {game.phase} в канале {game.channel_id}: {error}")
+        game.phase = "cancelled"
+        # Finish cleanup even when the error occurred inside the current timer.
+        game.cancel_timers()
+        if self.get_game(game.channel_id) is game:
+            self.remove_game(game.channel_id)
+        try:
+            await game.channel.send(
+                "❌ Партия остановлена из-за ошибки Discord или базы данных. "
+                "Создайте новое лобби; если ошибка повторяется, сообщите администратору."
+            )
+        except nextcord.HTTPException:
+            log.warning("Не удалось сообщить об остановке игры в канале %s", game.channel_id)
+
+    async def _send_phase(self, game: MafiaGame, *args, **kwargs) -> bool:
+        try:
+            await game.channel.send(*args, **kwargs)
+        except nextcord.HTTPException as e:
+            await self._abort_game(game, e)
+            return False
+        return self.get_game(game.channel_id) is game
 
     # ─── Запуск партии ───────────────────────────────
     async def start_game(self, interaction: Interaction, mode: str, players: list[int]) -> None:
@@ -442,10 +498,14 @@ class Mafia(commands.Cog):
         guild = interaction.guild
         failed_dm: list[int] = []
 
-        for uid in players:
-            member = guild.get_member(uid)
-            username = member.display_name if member else f"User{uid % 10000}"
-            await ensure_player(guild_id, uid, username)
+        try:
+            for uid in players:
+                member = guild.get_member(uid)
+                username = member.display_name if member else f"User{uid % 10000}"
+                await ensure_player(guild_id, uid, username)
+        except Exception as e:
+            await self._abort_game(game, e)
+            return
 
         for uid in players:
             if self.get_game(channel_id) is not game:
@@ -489,6 +549,7 @@ class Mafia(commands.Cog):
     async def start_night(self, game: MafiaGame, failed_dm: list[int] = None) -> None:
         if game.phase not in ("setup", "resolving_vote") or self.get_game(game.channel_id) is not game:
             return
+        game.cancel_timers()
         game.phase = "night"
         game.mafia_votes.clear()
         game.doctor_target = None
@@ -498,13 +559,15 @@ class Mafia(commands.Cog):
 
         guild_name = game.channel.guild.name if game.channel.guild else "Lounge"
         embed = E.night_announce_embed(game.day, len(game.alive), guild_name=guild_name)
-        await game.channel.send(embed=embed)
+        if not await self._send_phase(game, embed=embed):
+            return
 
         if failed_dm:
-            await game.channel.send(
+            if not await self._send_phase(game,
                 "⚠️ " + " ".join(f"<@{u}>" for u in failed_dm) +
                 " — откройте ЛС от бота, иначе не сможете играть."
-            )
+            ):
+                return
 
         for uid in list(game.alive):
             if not game.accepts("night", game.day):
@@ -522,24 +585,27 @@ class Mafia(commands.Cog):
                 view = NightActionView(game, uid, "kill")
                 try:
                     await user.send(embed=embed, view=view)
-                except nextcord.Forbidden:
-                    pass
+                except nextcord.HTTPException as e:
+                    await self._abort_game(game, e)
+                    return
 
             elif role == "cop":
                 embed = E.night_cop_embed(game.day)
                 view = NightActionView(game, uid, "check")
                 try:
                     await user.send(embed=embed, view=view)
-                except nextcord.Forbidden:
-                    pass
+                except nextcord.HTTPException as e:
+                    await self._abort_game(game, e)
+                    return
 
             elif role == "doctor":
                 embed = E.night_doctor_embed(game.day)
                 view = NightActionView(game, uid, "heal")
                 try:
                     await user.send(embed=embed, view=view)
-                except nextcord.Forbidden:
-                    pass
+                except nextcord.HTTPException as e:
+                    await self._abort_game(game, e)
+                    return
 
         if not game.accepts("night", game.day):
             return
@@ -577,7 +643,8 @@ class Mafia(commands.Cog):
 
         guild_name = game.channel.guild.name if game.channel.guild else "Lounge"
         morning = E.morning_embed(game.day, victim_name, saved, guild_name=guild_name)
-        await game.channel.send(embed=morning)
+        if not await self._send_phase(game, embed=morning):
+            return
 
         winner = self.check_win(game)
         if winner:
@@ -590,6 +657,7 @@ class Mafia(commands.Cog):
     async def start_day(self, game: MafiaGame) -> None:
         if game.phase != "resolving" or self.get_game(game.channel_id) is not game:
             return
+        game.cancel_timers()
         game.phase = "day"
         game.votes.clear()
         game._day_finished = False
@@ -600,7 +668,8 @@ class Mafia(commands.Cog):
         dead_log = game.dead_log_formatted()
         embed = E.day_embed(game.day, alive_mentions, dead_log, guild_name=guild_name)
         view = DayView(game)
-        await game.channel.send(embed=embed, view=view)
+        if not await self._send_phase(game, embed=embed, view=view):
+            return
 
         if not game.accepts("day", game.day):
             return
@@ -620,6 +689,7 @@ class Mafia(commands.Cog):
     async def start_vote(self, game: MafiaGame) -> None:
         if game.phase != "day" or self.get_game(game.channel_id) is not game:
             return
+        game.cancel_timers()
         game.phase = "vote"
         game.votes.clear()
         game._vote_finished = False
@@ -628,7 +698,8 @@ class Mafia(commands.Cog):
         guild_name = game.channel.guild.name if game.channel.guild else "Lounge"
         embed = E.vote_embed(game.day, len(game.alive), guild_name=guild_name)
         view = VoteView(game)
-        await game.channel.send(embed=embed, view=view)
+        if not await self._send_phase(game, embed=embed, view=view):
+            return
 
         if not game.accepts("vote", game.day):
             return
@@ -660,13 +731,14 @@ class Mafia(commands.Cog):
         results = {game.short_name(uid): c for uid, c in real_votes.items()}
 
         if not real_votes:
-            await game.channel.send(
+            if not await self._send_phase(game,
                 embed=E.vote_result_no_execution_embed(
                     game.day, None,
                     "🗳️ Никто не голосовал. Казни не будет.",
                     guild_name=guild_name,
                 )
-            )
+            ):
+                return
             await self._next_night(game)
             return
 
@@ -674,13 +746,14 @@ class Mafia(commands.Cog):
         leaders = [uid for uid, c in real_votes.items() if c == max_votes]
 
         if len(leaders) > 1:
-            await game.channel.send(
+            if not await self._send_phase(game,
                 embed=E.vote_result_no_execution_embed(
                     game.day, results,
                     "🗳️ Голоса разделились. Казни не будет — город в смятении.",
                     guild_name=guild_name,
                 )
-            )
+            ):
+                return
             await self._next_night(game)
             return
 
@@ -691,12 +764,13 @@ class Mafia(commands.Cog):
         game.kill(victim_id, f"казнён днём {game.day}")
         flavor = random.choice(EXECUTION_FLAVORS)
 
-        await game.channel.send(
+        if not await self._send_phase(game,
             embed=E.vote_result_execution_embed(
                 game.day, results, victim_name, victim_role, flavor,
                 guild_name=guild_name,
             )
-        )
+        ):
+            return
 
         winner = self.check_win(game)
         if winner:
@@ -725,6 +799,7 @@ class Mafia(commands.Cog):
     async def end_game(self, game: MafiaGame, winner: str) -> None:
         if game.phase in ("ended", "cancelled") or self.get_game(game.channel_id) is not game:
             return
+        game.cancel_timers()
         game.phase = "ended"
         game.finished_at = time.time()
         duration_sec = int(game.finished_at - game.created_at)
@@ -749,6 +824,7 @@ class Mafia(commands.Cog):
         roster_json = json.dumps(roster, ensure_ascii=False)
         winner_id = next(iter(winners)) if winners else None
 
+        results_saved = True
         try:
             await save_game(
                 guild_id=game.guild_id,
@@ -769,8 +845,8 @@ class Mafia(commands.Cog):
                     chips_delta=chips_delta,
                 )
         except Exception:
-            import traceback
-            traceback.print_exc()
+            log.exception("Не удалось сохранить результаты игры %s", game.game_id)
+            results_saved = False
 
         mins = duration_sec // 60
         secs = duration_sec % 60
@@ -784,15 +860,17 @@ class Mafia(commands.Cog):
         embed.add_field(name="⏱ Длительность", value=duration_str, inline=True)
         embed.add_field(
             name="🪙 Награда",
-            value=f"+{CHIPS_WIN} победителям\n+{CHIPS_LOSE} проигравшим",
+            value=(f"+{CHIPS_WIN} победителям\n+{CHIPS_LOSE} проигравшим"
+                   if results_saved else "Ошибка сохранения: результаты и награды могли сохраниться не полностью."),
             inline=True,
         )
         embed.set_footer(text=f"{guild_name} • Good Games Only")
 
         try:
-            await game.channel.send(embed=embed)
+            await self._send_phase(game, embed=embed)
         finally:
-            self.remove_game(game.channel_id)
+            if self.get_game(game.channel_id) is game:
+                self.remove_game(game.channel_id)
 
 
 def setup(bot: commands.Bot):
