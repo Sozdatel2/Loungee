@@ -1,6 +1,6 @@
 import os
 import logging
-import traceback
+import asyncio
 import nextcord
 from nextcord import Interaction
 from nextcord.ext import commands
@@ -29,10 +29,38 @@ class Lounge(commands.Bot):
 bot = Lounge()
 
 _initialized = False
+_initialization_lock = asyncio.Lock()
+
+
+async def initialize_bot():
+    global _initialized
+    async with _initialization_lock:
+        if _initialized:
+            return
+        await init_db()
+        log.info("🗄️ База данных инициализирована")
+        for extension in ("cogs.lobby", "cogs.games", "cogs.mafia"):
+            if extension not in bot.extensions:
+                bot.load_extension(extension)
+                log.info("✅ Загружен модуль: %s", extension)
+        await bot.sync_application_commands()
+        _initialized = True
+        log.info("🔄 Инициализация и синхронизация команд завершены")
+
+
+@bot.application_command_check
+async def require_initialization(interaction: Interaction):
+    if not _initialized:
+        await interaction.response.send_message(
+            "🎩 Lounge ещё готовится к приёму гостей. Попробуйте чуть позже, сэр.",
+            ephemeral=True,
+        )
+        return False
+    return True
+
 
 @bot.event
 async def on_ready():
-    global _initialized
 
     log.info(f"🎩 Lounge на месте. Вошёл как {bot.user}")
     log.info(f"   ID: {bot.user.id}")
@@ -40,30 +68,12 @@ async def on_ready():
     for g in bot.guilds:
         log.info(f"   • {g.name} ({g.id})")
 
-    if not _initialized:
-        _initialized = True
-
-        try:
-            await init_db()
-            log.info("🗄️  База данных инициализирована")
-        except Exception as e:
-            log.error(f"❌ Ошибка БД: {type(e).__name__}: {e}")
-            traceback.print_exc()
-
-        for cog in ["cogs.lobby", "cogs.games", "cogs.mafia"]:
-            try:
-                bot.load_extension(cog)
-                log.info(f"✅ Загружен ког: {cog}")
-            except Exception as e:
-                log.error(f"❌ Ког {cog} НЕ загружен: {type(e).__name__}: {e}")
-                traceback.print_exc()
-
-        try:
-            await bot.sync_application_commands()
-            log.info("🔄 Слэш-команды синкнуты глобально")
-        except Exception as e:
-            log.error(f"❌ Ошибка синка: {type(e).__name__}: {e}")
-            traceback.print_exc()
+    try:
+        await initialize_bot()
+    except Exception:
+        log.exception("❌ Инициализация не завершена; бот отключается во избежание частичной работы")
+        await bot.close()
+        return
 
     await bot.change_presence(
         activity=nextcord.Activity(

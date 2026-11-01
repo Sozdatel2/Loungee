@@ -165,21 +165,17 @@ class StabilityTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(cog.has_active_game(2))
 
     async def test_database_failures_do_not_prevent_game_completion(self):
-        for failing_operation in ('save_game', 'add_game_result'):
-            with self.subTest(operation=failing_operation):
-                g = game()
-                g.channel = channel()
-                cog = Mafia(None)
-                cog.games[2] = g
-                with patch('cogs.mafia.save_game', new=AsyncMock()) as save, \
-                     patch('cogs.mafia.add_game_result', new=AsyncMock()) as award:
-                    (save if failing_operation == 'save_game' else award).side_effect = RuntimeError('db')
-                    with self.assertLogs('cogs.mafia', level='ERROR'):
-                        await cog.end_game(g, 'mafia')
-                self.assertEqual(g.phase, 'ended')
-                self.assertFalse(cog.has_active_game(2))
-                embed = g.channel.send.call_args.kwargs['embed']
-                self.assertIn('Ошибка сохранения', embed.fields[1].value)
+        g = game()
+        g.channel = channel()
+        cog = Mafia(None)
+        cog.games[2] = g
+        with patch('cogs.mafia.record_game_result', new=AsyncMock(side_effect=RuntimeError('db'))):
+            with self.assertLogs('cogs.mafia', level='ERROR'):
+                await cog.end_game(g, 'mafia')
+        self.assertEqual(g.phase, 'ended')
+        self.assertFalse(cog.has_active_game(2))
+        embed = g.channel.send.call_args.kwargs['embed']
+        self.assertIn('Ошибка сохранения', embed.fields[1].value)
 
     async def test_setup_database_failure_releases_game(self):
         g = game()

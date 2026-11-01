@@ -5,8 +5,9 @@ DB_PATH = os.path.join("data", "lounge.db")
 
 async def init_db():
     """Создаёт таблицы, если их нет."""
-    os.makedirs("data", exist_ok=True)
-    async with aiosqlite.connect(DB_PATH) as db:
+    os.makedirs(os.path.dirname(os.path.abspath(DB_PATH)), exist_ok=True)
+    async with aiosqlite.connect(DB_PATH, timeout=10) as db:
+        await db.execute("BEGIN IMMEDIATE")
         await db.execute("""
             CREATE TABLE IF NOT EXISTS players (
                 guild_id INTEGER NOT NULL,
@@ -33,11 +34,17 @@ async def init_db():
                 finished_at TIMESTAMP
             )
         """)
+        # Preserve historical rows: SQLite allows multiple NULLs in a unique index.
+        async with db.execute("PRAGMA table_info(games)") as cursor:
+            columns = {row[1] for row in await cursor.fetchall()}
+        if "game_id" not in columns:
+            await db.execute("ALTER TABLE games ADD COLUMN game_id TEXT")
+        await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS games_game_id ON games(game_id)")
         await db.commit()
 
 async def get_db():
     """Возвращает соединение с БД."""
-    return await aiosqlite.connect(DB_PATH)
+    return await aiosqlite.connect(DB_PATH, timeout=10)
 
 async def get_player(guild_id: int, user_id: int):
     """Получить игрока или None."""
@@ -130,5 +137,45 @@ async def get_top_players(guild_id: int, limit: int = 10):
             (guild_id, limit),
         ) as cursor:
             return await cursor.fetchall()
+    finally:
+        await db.close()
+
+async def record_game_result(
+    *, game_id: str, guild_id: int, game_type: str, channel_id: int,
+    host_id: int, players_json: str, winner_id: int | None, duration_sec: int,
+    rewards: list[tuple[int, bool, int]],
+) -> bool:
+    """Commit history and every award once; return False for an already saved game."""
+    if not game_id or not rewards or len({uid for uid, _, _ in rewards}) != len(rewards):
+        raise ValueError("A game needs a unique ID and distinct reward recipients")
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        cursor = await db.execute(
+            """INSERT INTO games
+                (game_id, guild_id, game_type, channel_id, host_id, players,
+                 winner_id, duration_sec, finished_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+               ON CONFLICT(game_id) DO NOTHING""",
+            (game_id, guild_id, game_type, channel_id, host_id, players_json,
+             winner_id, duration_sec),
+        )
+        if cursor.rowcount == 0:
+            await db.commit()
+            return False
+        for user_id, won, chips_delta in rewards:
+            cursor = await db.execute(
+                """UPDATE players SET games_played = games_played + 1,
+                   games_won = games_won + ?, chips = chips + ?
+                   WHERE guild_id = ? AND user_id = ?""",
+                (int(won), chips_delta, guild_id, user_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError(f"Missing player {user_id} in guild {guild_id}")
+        await db.commit()
+        return True
+    except BaseException:
+        await db.rollback()
+        raise
     finally:
         await db.close()

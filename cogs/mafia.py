@@ -9,7 +9,7 @@ from nextcord import Interaction
 from nextcord.ext import commands
 from utils.roles import get_role
 from utils import embeds as E
-from database.db import add_game_result, save_game, ensure_player
+from database.db import record_game_result, ensure_player
 
 
 log = logging.getLogger(__name__)
@@ -152,7 +152,7 @@ class DayView(GameView):
         if self.mg.cog and self.mg.channel:
             asyncio.create_task(self.mg.cog.start_vote(self.mg))
         self.stop()
-        await interaction.response.send_message("⏩ Хост ускорил обсуждение.", ephemeral=True)
+        await interaction.response.send_message("⏩ Хост ускорил обсуждение.", ephemeral=False)
 
 
 # ─────────────────────────────────────────────────────
@@ -826,7 +826,8 @@ class Mafia(commands.Cog):
 
         results_saved = True
         try:
-            await save_game(
+            await record_game_result(
+                game_id=game.game_id,
                 guild_id=game.guild_id,
                 game_type=f"mafia_{game.mode}",
                 channel_id=game.channel_id,
@@ -834,16 +835,9 @@ class Mafia(commands.Cog):
                 players_json=roster_json,
                 winner_id=winner_id,
                 duration_sec=duration_sec,
+                rewards=[(uid, uid in winners, CHIPS_WIN if uid in winners else CHIPS_LOSE)
+                         for uid in game.players],
             )
-            for uid in game.players:
-                won = uid in winners
-                chips_delta = CHIPS_WIN if won else CHIPS_LOSE
-                await add_game_result(
-                    guild_id=game.guild_id,
-                    user_id=uid,
-                    won=won,
-                    chips_delta=chips_delta,
-                )
         except Exception:
             log.exception("Не удалось сохранить результаты игры %s", game.game_id)
             results_saved = False
@@ -861,7 +855,7 @@ class Mafia(commands.Cog):
         embed.add_field(
             name="🪙 Награда",
             value=(f"+{CHIPS_WIN} победителям\n+{CHIPS_LOSE} проигравшим"
-                   if results_saved else "Ошибка сохранения: результаты и награды могли сохраниться не полностью."),
+                   if results_saved else "Ошибка сохранения: не удалось подтвердить запись результатов и наград."),
             inline=True,
         )
         embed.set_footer(text=E.footer_text(guild_name))
