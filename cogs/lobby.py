@@ -1,10 +1,11 @@
+import os
 import nextcord
 from nextcord import Interaction
 from nextcord.ext import commands
 from database.db import get_player, get_top_players
 from database.manager import game_manager
 from utils.embeds import base_embed
-from utils import VERSION, CHIPS_WIN, CHIPS_LOSE, GAME_NAMES
+from utils import VERSION, CHIPS_WIN, CHIPS_LOSE, GAME_NAMES, BOT_INVITE_URL
 
 class Lobby(commands.Cog):
     """Общее лобби — приветствие, help, инфо, профиль, топ."""
@@ -34,7 +35,9 @@ class Lobby(commands.Cog):
                 "`/game-cancel` — ведущему: отменить лобби или Мафию\n"
                 "`/profile` — карточка игрока\n"
                 "`/top` — топ по фишкам\n"
-                "`/active` — активные игры на сервере"
+                "`/active` — активные игры на сервере\n"
+                "`/host-transfer` или `/transfer-host` — передать ведение участнику\n"
+                "`/support` — помощь и обратная связь"
             ),
             inline=False,
         )
@@ -67,7 +70,21 @@ class Lobby(commands.Cog):
                    "При отмене награды не начисляются. Профиль и рейтинг отдельные на каждом сервере."),
             inline=False,
         )
+        embed.add_field(name="🎩 Пригласить Lounge", value=f"[Добавить бота на сервер]({BOT_INVITE_URL})", inline=False)
         await interaction.response.send_message(embed=embed)
+
+    @nextcord.slash_command(name="support", description="Поддержка Lounge и обратная связь")
+    async def support(self, interaction: Interaction):
+        support_url = os.getenv("LOUNGE_SUPPORT_URL", "https://discord.gg/dArxQ8GV38")
+        embed = base_embed(
+            title="🎩 Поддержка Lounge",
+            description=(f"[Обратиться в поддержку]({support_url})\n\n"
+                         "Опишите, что делали, что ожидали и что произошло. "
+                         "Добавьте время ошибки и скриншот, если он есть. "
+                         "Токены и личную переписку присылать не нужно, сэр."),
+            guild_name=interaction.guild.name if interaction.guild else "Lounge",
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @nextcord.slash_command(name="profile", description="Карточка игрока")
     async def profile(

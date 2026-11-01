@@ -10,3 +10,5 @@ GAME_NAMES = {
     "spyfall": "Шпион",
     "custom": "Своя игра",
 }
+
+BOT_INVITE_URL = "https://discord.com/oauth2/authorize?client_id=1553849798359130194"

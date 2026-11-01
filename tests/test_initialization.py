@@ -28,7 +28,7 @@ class InitializationTests(unittest.IsolatedAsyncioTestCase):
         await main.initialize_bot()
         self.assertTrue(main._initialized)
         main.init_db.assert_awaited_once()
-        self.assertEqual(self.bot.load_extension.call_count, 3)
+        self.assertEqual(self.bot.load_extension.call_count, 4)
         self.bot.sync_application_commands.assert_awaited_once()
 
     async def test_database_failure_closes_bot_before_loading_commands(self):
@@ -54,7 +54,7 @@ class InitializationTests(unittest.IsolatedAsyncioTestCase):
         self.bot.load_extension.side_effect = original
         await main.initialize_bot()
         self.assertTrue(main._initialized)
-        self.assertEqual(set(self.bot.extensions), {'cogs.lobby', 'cogs.games', 'cogs.mafia'})
+        self.assertEqual(set(self.bot.extensions), {'cogs.lobby', 'cogs.games', 'cogs.mafia', 'cogs.developer'})
         self.assertEqual(self.bot.load_extension.call_args_list.count((('cogs.lobby',),)), 1)
 
     async def test_sync_failure_closes_bot_and_never_marks_ready(self):

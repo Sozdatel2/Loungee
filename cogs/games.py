@@ -331,6 +331,48 @@ class Games(commands.Cog):
             except nextcord.HTTPException:
                 log.warning("Не удалось убрать кнопки отменённого лобби %s", game.game_id)
 
+    async def _transfer_host(self, interaction: Interaction, member: nextcord.Member):
+        if interaction.guild_id is None:
+            return await interaction.response.send_message("Передавайте ведение в канале сервера, сэр.", ephemeral=True)
+        lobby = game_manager.get(interaction.channel_id)
+        mafia = self.bot.get_cog("Mafia")
+        current = lobby or (mafia.get_game(interaction.channel_id) if mafia else None)
+        if current is None:
+            return await interaction.response.send_message("В этом канале нет активного лобби или партии, сэр.", ephemeral=True)
+        if current.host_id != interaction.user.id:
+            return await interaction.response.send_message("Только ведущий может передать ведение, сэр.", ephemeral=True)
+        if ((lobby is not None and lobby.state == "starting")
+                or getattr(current, "phase", None) in ("setup", "ended", "cancelled")):
+            return await interaction.response.send_message("Сейчас передать ведение нельзя. Дождитесь запуска партии, сэр.", ephemeral=True)
+        if member.bot or member.id not in current.players:
+            return await interaction.response.send_message("Выберите участника этой игры, сэр. Бот не может быть ведущим.", ephemeral=True)
+        if member.id == current.host_id:
+            return await interaction.response.send_message("Вы уже ведущий, сэр.", ephemeral=True)
+        current.host_id = member.id
+        await interaction.response.send_message(
+            embed=success_embed(f"🎩 Новый ведущий — {member.mention}. Приятной партии, господа."),
+            allowed_mentions=nextcord.AllowedMentions.none(),
+        )
+        if lobby and lobby.message_id:
+            try:
+                message = await interaction.channel.fetch_message(lobby.message_id)
+                embed = lobby_embed(lobby.game_type, member.mention,
+                                    [f"<@{uid}>" for uid in lobby.players],
+                                    guild_name=interaction.guild.name)
+                await message.edit(embed=embed)
+            except nextcord.HTTPException:
+                log.warning("Ведущий изменён, но не удалось обновить лобби %s", lobby.game_id)
+
+    @nextcord.slash_command(name="host-transfer", description="Передать ведение участнику текущей игры")
+    async def host_transfer(self, interaction: Interaction,
+                            member: nextcord.Member = nextcord.SlashOption(name="участник", description="Новый ведущий")):
+        await self._transfer_host(interaction, member)
+
+    @nextcord.slash_command(name="transfer-host", description="Алиас /host-transfer: передать ведение")
+    async def transfer_host(self, interaction: Interaction,
+                            member: nextcord.Member = nextcord.SlashOption(name="участник", description="Новый ведущий")):
+        await self._transfer_host(interaction, member)
+
 
 def setup(bot: commands.Bot):
     bot.add_cog(Games(bot))
