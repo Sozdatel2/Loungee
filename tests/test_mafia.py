@@ -16,8 +16,10 @@ def game():
     return g
 
 
-def interaction(uid):
-    return SimpleNamespace(user=SimpleNamespace(id=uid),
+def interaction(uid, game_id="unused"):
+
+    return SimpleNamespace(data={"custom_id": f"test:{game_id}:target"},
+                           user=SimpleNamespace(id=uid),
                            response=SimpleNamespace(send_message=AsyncMock()),
                            message=SimpleNamespace(edit=AsyncMock()))
 
@@ -25,7 +27,7 @@ def interaction(uid):
 class MafiaTests(unittest.IsolatedAsyncioTestCase):
     async def test_doctor_self_heal_not_consecutive(self):
         g = game()
-        self.assertIn(3, [int(button.custom_id.split(':')[1])
+        self.assertIn(3, [int(button.custom_id.split(':')[-1])
                           for button in NightActionView(g, 3, 'heal').children])
         self.assertTrue(g.register_action('heal', 3, 3))
         g.day = 2
@@ -62,14 +64,14 @@ class MafiaTests(unittest.IsolatedAsyncioTestCase):
         g = game()
         view = NightActionView(g, 1, 'kill')
         g.day = 2
-        await view._make_callback(5)(interaction(1))
+        await view._make_callback(5)(interaction(1, g.game_id))
         self.assertEqual(g.mafia_votes, {})
 
     async def test_night_button_rejected_after_completion(self):
         g = game()
         view = NightActionView(g, 1, 'kill')
         g._night_finished = True
-        await view._make_callback(5)(interaction(1))
+        await view._make_callback(5)(interaction(1, g.game_id))
         self.assertEqual(g.mafia_votes, {})
 
     async def test_old_vote_and_abstention_rejected(self):
@@ -77,8 +79,8 @@ class MafiaTests(unittest.IsolatedAsyncioTestCase):
         g.phase = 'vote'
         view = VoteView(g)
         g.day = 2
-        await view._make_vote_callback(5)(interaction(1))
-        await view._abstain_callback(interaction(2))
+        await view._make_vote_callback(5)(interaction(1, g.game_id))
+        await view._abstain_callback(interaction(2, g.game_id))
         self.assertEqual(g.votes, {})
 
     async def test_dead_target_and_duplicate_vote_rejected(self):
@@ -86,17 +88,17 @@ class MafiaTests(unittest.IsolatedAsyncioTestCase):
         g.phase = 'vote'
         view = VoteView(g)
         g.kill(5, 'test')
-        await view._make_vote_callback(5)(interaction(1))
+        await view._make_vote_callback(5)(interaction(1, g.game_id))
         self.assertEqual(g.votes, {})
-        await view._make_vote_callback(6)(interaction(1))
-        await view._abstain_callback(interaction(1))
+        await view._make_vote_callback(6)(interaction(1, g.game_id))
+        await view._abstain_callback(interaction(1, g.game_id))
         self.assertEqual(g.votes, {1: 6})
 
     async def test_removed_game_rejects_buttons(self):
         g = game()
         g.cog = Mafia(None)
         view = NightActionView(g, 1, 'kill')
-        await view._make_callback(5)(interaction(1))
+        await view._make_callback(5)(interaction(1, g.game_id))
         self.assertEqual(g.mafia_votes, {})
 
     async def test_vote_transition_only_once(self):
@@ -118,7 +120,7 @@ class MafiaTests(unittest.IsolatedAsyncioTestCase):
         g.phase = 'day'
         view = DayView(g)
         g.day = 2
-        await view.to_vote.callback(interaction(1))
+        await view.to_vote.callback(interaction(1, g.game_id))
         self.assertFalse(g._day_finished)
 
     async def test_active_includes_mafia(self):
@@ -126,7 +128,7 @@ class MafiaTests(unittest.IsolatedAsyncioTestCase):
         cog = Mafia(None)
         cog.games[g.channel_id] = g
         lobby = Lobby(SimpleNamespace(get_cog=lambda name: cog))
-        i = interaction(1)
+        i = interaction(1, g.game_id)
         i.guild_id = 1
         i.guild = SimpleNamespace(name='test')
         await Lobby.active.callback(lobby, i)
@@ -185,8 +187,8 @@ class MafiaTests(unittest.IsolatedAsyncioTestCase):
         g.channel = object()
         view = DayView(g)
         with patch.object(cog, 'start_vote', new=AsyncMock()) as start_vote:
-            await asyncio.gather(view.to_vote.callback(interaction(1)),
-                                 view.to_vote.callback(interaction(1)))
+            await asyncio.gather(view.to_vote.callback(interaction(1, g.game_id)),
+                                 view.to_vote.callback(interaction(1, g.game_id)))
             await asyncio.sleep(0)
             start_vote.assert_awaited_once()
 
@@ -211,11 +213,11 @@ class MafiaTests(unittest.IsolatedAsyncioTestCase):
         g.cog = cog
         cog.games[2] = g
         commands = SimpleNamespace(bot=SimpleNamespace(get_cog=lambda name: cog))
-        outsider = interaction(5)
+        outsider = interaction(5, g.game_id)
         outsider.channel_id = 2
         await Games.game_cancel.callback(commands, outsider)
         self.assertTrue(cog.has_active_game(2))
-        host = interaction(1)
+        host = interaction(1, g.game_id)
         host.channel_id = 2
         await Games.game_cancel.callback(commands, host)
         self.assertFalse(cog.has_active_game(2))

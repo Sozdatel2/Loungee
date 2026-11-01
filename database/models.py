@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import List, Optional
 import time
+import uuid
 
 
 @dataclass
@@ -23,6 +24,7 @@ class Game:
     created_at: float = field(default_factory=time.time)
     expires_at: float = 0.0
     message_id: Optional[int] = None
+    game_id: str = field(default_factory=lambda: uuid.uuid4().hex)
 
     def add_player(self, user_id: int) -> bool:
         if user_id in self.players:
