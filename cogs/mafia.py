@@ -517,7 +517,7 @@ class Mafia(commands.Cog):
                 description=role["desc"],
                 color=role["color"],
             )
-            embed.set_footer(text="Lounge • Good Games Only")
+            embed.set_footer(text=E.footer_text())
 
             if role_key == "mafia" and mode == "full":
                 mates = [m for m in game.mafia_ids() if m != uid]
@@ -864,7 +864,7 @@ class Mafia(commands.Cog):
                    if results_saved else "Ошибка сохранения: результаты и награды могли сохраниться не полностью."),
             inline=True,
         )
-        embed.set_footer(text=f"{guild_name} • Good Games Only")
+        embed.set_footer(text=E.footer_text(guild_name))
 
         try:
             await self._send_phase(game, embed=embed)

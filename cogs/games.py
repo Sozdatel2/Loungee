@@ -199,18 +199,19 @@ class Games(commands.Cog):
     @tasks.loop(seconds=CHECK_INTERVAL)
     async def _lobby_watcher(self):
         now = time.time()
-        expired_channels = []
+        expired_lobbies = []
         for g in game_manager.list_active():
             if g.state == "lobby" and g.expires_at and now > g.expires_at:
-                expired_channels.append(g.channel_id)
+                expired_lobbies.append(g)
 
-        for ch_id in expired_channels:
-            g = game_manager.get(ch_id)
-            if not g:
+        for g in expired_lobbies:
+            # A previous Discord request may yield while this lobby is refreshed or replaced.
+            if (game_manager.get(g.channel_id) is not g or g.state != "lobby"
+                    or not g.is_expired()):
                 continue
-            game_manager.remove(ch_id)
+            game_manager.remove(g.channel_id)
 
-            channel = self.bot.get_channel(ch_id)
+            channel = self.bot.get_channel(g.channel_id)
             if not channel:
                 continue
             guild_name = channel.guild.name if channel.guild else "Lounge"
@@ -244,6 +245,10 @@ class Games(commands.Cog):
             required=True,
         ),
     ):
+        if interaction.guild_id is None:
+            return await interaction.response.send_message(
+                "Создавайте лобби в текстовом канале сервера, сэр.", ephemeral=True
+            )
         if game_manager.has_active(interaction.channel_id):
             return await interaction.response.send_message(
                 embed=error_embed("В этом канале уже идёт лобби или игра."),
@@ -274,10 +279,21 @@ class Games(commands.Cog):
             [interaction.user.mention],
             guild_name=interaction.guild.name if interaction.guild else "Lounge",
         )
-        await interaction.response.send_message(embed=embed, view=view)
-
-        msg = await interaction.original_message()
-        g.message_id = msg.id
+        try:
+            await interaction.response.send_message(embed=embed, view=view)
+            msg = await interaction.original_message()
+            g.message_id = msg.id
+        except nextcord.HTTPException:
+            # Do not reserve a channel for a lobby that could not be published.
+            if game_manager.get(g.channel_id) is g:
+                game_manager.remove(g.channel_id)
+            view.stop()
+            log.exception("Не удалось создать сообщение лобби в канале %s", g.channel_id)
+            try:
+                await interaction.delete_original_message()
+            except nextcord.HTTPException:
+                pass
+            raise
 
     @nextcord.slash_command(name="game-cancel", description="Отменить текущее лобби или Мафию")
     async def game_cancel(self, interaction: Interaction):
@@ -307,6 +323,12 @@ class Games(commands.Cog):
             )
         game_manager.remove(interaction.channel_id)
         await interaction.response.send_message(embed=success_embed("Игра отменена."))
+        if game.message_id:
+            try:
+                message = await interaction.channel.fetch_message(game.message_id)
+                await message.edit(view=None)
+            except nextcord.HTTPException:
+                log.warning("Не удалось убрать кнопки отменённого лобби %s", game.game_id)
 
 
 def setup(bot: commands.Bot):

@@ -6,6 +6,7 @@ from nextcord import Interaction
 from nextcord.ext import commands
 from dotenv import load_dotenv
 from database.db import init_db
+from utils.embeds import footer_text
 
 load_dotenv()
 
@@ -87,7 +88,7 @@ async def on_guild_join(guild: nextcord.Guild):
             ),
             color=0xC5A028,
         )
-        embed.set_footer(text=f"{guild.name} • Good Games Only")
+        embed.set_footer(text=footer_text(guild.name))
         try:
             await target.send(embed=embed)
         except Exception as e:

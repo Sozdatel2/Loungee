@@ -9,8 +9,12 @@ ORANGE = 0xE67E22
 GREY = 0x95A5A6
 
 
-def _footer(guild_name: str = "Lounge") -> str:
-    return f"{guild_name} • Good Games Only"
+def footer_text(guild_name: str = "Lounge") -> str:
+    """Return the shared Lounge branding and license footer."""
+    return (
+        f"🎩 {guild_name} • Good Games Only ㅤ‧ㅤ 2026 Lounge Team ©\n"
+        "Код защищён лицензией MIT ㅤ‧ㅤ Копирование лора — моветон"
+    )
 
 
 def base_embed(
@@ -20,7 +24,7 @@ def base_embed(
     guild_name: str = "Lounge",
 ) -> nextcord.Embed:
     embed = nextcord.Embed(title=title, description=description, color=color)
-    embed.set_footer(text=_footer(guild_name))
+    embed.set_footer(text=footer_text(guild_name))
     return embed
 
 
@@ -81,7 +85,7 @@ def info_embed(title: str, text: str, guild_name: str = "Lounge") -> nextcord.Em
 def night_mafia_embed(day: int, targets: list[str], mates: list[str]) -> nextcord.Embed:
     embed = nextcord.Embed(
         title=f"🌙 Ночь {day} — Мафия",
-        description="Выберите жертву. Голосуйте тихо, господа.",
+        description="Выберите жертву. Голосуйте тихо, господа.\n\n⏱ У вас 2 минуты.",
         color=DARK_RED,
     )
     if mates:
@@ -90,34 +94,34 @@ def night_mafia_embed(day: int, targets: list[str], mates: list[str]) -> nextcor
             value="\n".join(f"• {m}" for m in mates),
             inline=False,
         )
-    embed.set_footer(text="⏱ У вас 2 минуты")
+    embed.set_footer(text=footer_text())
     return embed
 
 
 def night_cop_embed(day: int) -> nextcord.Embed:
     return nextcord.Embed(
         title=f"🌙 Ночь {day} — Комиссар",
-        description="Выберите, кого проверить. Правда — ваше оружие.",
+        description="Выберите, кого проверить. Правда — ваше оружие.\n\n⏱ У вас 2 минуты.",
         color=BLUE,
-    ).set_footer(text="⏱ У вас 2 минуты")
+    ).set_footer(text=footer_text())
 
 
 def night_doctor_embed(day: int) -> nextcord.Embed:
     return nextcord.Embed(
         title=f"🌙 Ночь {day} — Доктор",
-        description="Выберите, кого лечить. Жизнь — ваша профессия.",
+        description="Выберите, кого лечить. Жизнь — ваша профессия.\n\n⏱ У вас 2 минуты.",
         color=GREEN,
-    ).set_footer(text="⏱ У вас 2 минуты")
+    ).set_footer(text=footer_text())
 
 
 def cop_result_embed(target_name: str, is_mafia: bool) -> nextcord.Embed:
     if is_mafia:
-        return nextcord.Embed(
+        return base_embed(
             title="🕵️ Результат проверки",
             description=f"**{target_name}** — это **МАФИЯ** 🎩\n\nБудьте осторожны, сэр.",
             color=DARK_RED,
         )
-    return nextcord.Embed(
+    return base_embed(
         title="🕵️ Результат проверки",
         description=f"**{target_name}** — **не мафия** 👤\n\nИщите дальше, сэр.",
         color=BLUE,
@@ -132,7 +136,7 @@ def night_announce_embed(day: int, alive_count: int, guild_name: str = "Lounge")
             "*Роли получили инструкции в ЛС. У вас 2 минуты.*"
         ),
         color=0x2C3E50,
-    ).set_footer(text=_footer(guild_name))
+    ).set_footer(text=footer_text(guild_name))
 
 
 def morning_embed(day: int, victim_name: str | None, saved: bool, guild_name: str = "Lounge") -> nextcord.Embed:
@@ -147,7 +151,7 @@ def morning_embed(day: int, victim_name: str | None, saved: bool, guild_name: st
         title="☀️ Утро",
         description=desc,
         color=GOLD,
-    ).set_footer(text=_footer(guild_name))
+    ).set_footer(text=footer_text(guild_name))
 
 
 # ─── Дневные эмбеды ──────────────────────────────────
@@ -177,7 +181,7 @@ def day_embed(
             value="\n".join(dead_lines),
             inline=False,
         )
-    embed.set_footer(text=f"{guild_name} • Good Games Only • ⏱ 5 минут")
+    embed.set_footer(text=footer_text(guild_name))
     return embed
 
 
@@ -187,10 +191,10 @@ def vote_embed(day: int, alive_count: int, guild_name: str = "Lounge") -> nextco
         description=(
             f"Живых: **{alive_count}**.\n"
             "Выберите, кого казнить. Голос **тайный**, видите только вы.\n"
-            "Можно воздержаться."
+            "Можно воздержаться.\n\n⏱ У вас 1 минута."
         ),
         color=ORANGE,
-    ).set_footer(text="⏱ У вас 1 минута")
+    ).set_footer(text=footer_text(guild_name))
 
 
 def vote_result_execution_embed(
@@ -223,7 +227,7 @@ def vote_result_execution_embed(
         value=f"Он был... {emoji} **{role_label}**",
         inline=False,
     )
-    embed.set_footer(text=_footer(guild_name))
+    embed.set_footer(text=footer_text(guild_name))
     return embed
 
 
@@ -244,7 +248,7 @@ def vote_result_no_execution_embed(
         title=f"⚖️ Голосование — День {day}",
         description=desc,
         color=ORANGE,
-    ).set_footer(text=_footer(guild_name))
+    ).set_footer(text=footer_text(guild_name))
 
 
 def lobby_timeout_embed(guild_name: str = "Lounge") -> nextcord.Embed:
@@ -252,4 +256,4 @@ def lobby_timeout_embed(guild_name: str = "Lounge") -> nextcord.Embed:
         title="⏱ Лобби закрыто",
         description="Прошло 15 минут бездействия. Лобби автоматически закрыто.",
         color=GREY,
-    ).set_footer(text=_footer(guild_name))
+    ).set_footer(text=footer_text(guild_name))
