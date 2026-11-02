@@ -4,6 +4,7 @@ import nextcord
 from nextcord import Interaction
 from nextcord.ext import commands
 from utils.embeds import base_embed
+from utils.prefix import PrefixInteraction
 
 log = logging.getLogger(__name__)
 
@@ -23,9 +24,11 @@ class Developer(commands.Cog):
             await interaction.followup.send("Эта команда доступна только создателю бота, сэр.", ephemeral=True)
         return authorized
 
-    @nextcord.slash_command(name="servers", description="Создателю: список серверов бота")
-    async def servers(self, interaction: Interaction,
-                      page: int = nextcord.SlashOption(name="страница", min_value=1, default=1, required=False)):
+    @commands.command(name="servers", help="Создателю: список серверов бота")
+    @commands.is_owner()
+    async def servers(self, interaction: commands.Context,
+                      page: int = 1):
+        interaction = PrefixInteraction(interaction)
         if not await self._authorize(interaction):
             return
         guilds = sorted(self.bot.guilds, key=lambda g: (g.name.casefold(), g.id))
@@ -39,9 +42,11 @@ class Developer(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True,
                                         allowed_mentions=nextcord.AllowedMentions.none())
 
-    @nextcord.slash_command(name="get-sid", description="Создателю: ID сервера по названию")
-    async def get_sid(self, interaction: Interaction,
-                      name: str = nextcord.SlashOption(name="название", description="Полное название сервера")):
+    @commands.command(name="get-sid", help="Создателю: ID сервера по названию")
+    @commands.is_owner()
+    async def get_sid(self, interaction: commands.Context,
+                      *, name: str):
+        interaction = PrefixInteraction(interaction)
         if not await self._authorize(interaction):
             return
         matches = [g for g in self.bot.guilds if g.name.casefold() == name.strip().casefold()]
@@ -52,13 +57,15 @@ class Developer(commands.Cog):
         if len(matches) > 1:
             text = "Найдено несколько серверов с одинаковым названием:\n" + text
         if len(matches) > 20:
-            text += "\nОстальные доступны через /servers."
+            text += "\nОстальные доступны через L.servers."
         await interaction.followup.send(embed=base_embed(title="🪪 ID сервера", description=text), ephemeral=True,
                                         allowed_mentions=nextcord.AllowedMentions.none())
 
-    @nextcord.slash_command(name="get-inv", description="Создателю: существующее приглашение сервера")
-    async def get_inv(self, interaction: Interaction,
-                      server_id: str = nextcord.SlashOption(name="id", description="ID сервера, где состоит бот")):
+    @commands.command(name="get-inv", help="Создателю: существующее приглашение сервера")
+    @commands.is_owner()
+    async def get_inv(self, interaction: commands.Context,
+                      server_id: str):
+        interaction = PrefixInteraction(interaction)
         if not await self._authorize(interaction):
             return
         try:

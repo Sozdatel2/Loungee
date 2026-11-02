@@ -26,21 +26,67 @@ class Lobby(commands.Cog):
             ),
             guild_name=guild_name,
         )
-        embed.add_field(
-            name="📜 Доступные команды",
-            value=(
-                "`/lounge` — эта справка\n"
-                "`/ping` — проверить связь\n"
-                "`/game-start` — создать лобби\n"
-                "`/game-cancel` — ведущему: отменить лобби или Мафию\n"
-                "`/profile` — карточка игрока\n"
-                "`/top` — топ по фишкам\n"
-                "`/active` — активные игры на сервере\n"
-                "`/host-transfer` или `/transfer-host` — передать ведение участнику\n"
-                "`/support` — помощь и обратная связь"
-            ),
-            inline=False,
-        )
+        embed.add_field(name="🎩 Пригласить Lounge", value=f"[Добавить бота на сервер]({BOT_INVITE_URL})", inline=False)
+        await interaction.response.send_message(embed=embed)
+
+    @nextcord.slash_command(name="help", description="Справка по категориям команд Lounge")
+    async def help_command(self, interaction: Interaction,
+                           category: str = nextcord.SlashOption(name="категория", required=False,
+                                                                 min_length=1, max_length=32)):
+        aliases = {
+            "общие": "general", "general": "general", "основное": "general",
+            "игры": "games", "games": "games", "game": "games",
+            "профиль": "profile", "profile": "profile", "статистика": "profile",
+            "поддержка": "support", "support": "support",
+            "разработчик": "developer", "developer": "developer", "dev": "developer",
+        }
+        selected = aliases.get(category.strip().casefold()) if category else None
+        guild_name = interaction.guild.name if interaction.guild else "Lounge"
+        if category and selected is None:
+            return await interaction.response.send_message(
+                "Категория не найдена, сэр. Доступны: общие, игры, профиль, поддержка, разработчик.", ephemeral=True)
+        if selected == "developer":
+            await interaction.response.defer(ephemeral=True)
+            try:
+                owner = await self.bot.is_owner(interaction.user)
+            except nextcord.HTTPException:
+                owner = False
+            if not owner:
+                return await interaction.followup.send("Эта категория доступна только создателю бота, сэр.", ephemeral=True)
+            embed = base_embed(title="🛠 Справка · Разработчик", description=(
+                "Только префиксные команды; ответы приходят в ЛС.\n\n"
+                "`L.servers [страница]` — серверы бота и их ID.\n"
+                "`L.get-sid Название сервера` — ID по полному названию.\n"
+                "`L.get-inv ID` — существующее приглашение; боту нужны права на просмотр приглашений."),
+                guild_name=guild_name)
+            return await interaction.followup.send(embed=embed, ephemeral=True)
+        sections = {
+            "general": ("🎩 Общие", "`/lounge` — о боте и приглашение.\n`/help [категория]` — справка.\n`/ping` — задержка соединения."),
+            "games": ("🎲 Игры", "`/game-start` — создать лобби.\n`/game-cancel` — отменить лобби или Мафию.\n"
+                      "`/transfer-host` — передать ведение.\n`/active` — активные столы.\n`/rules [режим]` — правила Мафии."),
+            "profile": ("👤 Профиль", "`/profile [игрок]` — статистика, процент побед и фишки.\n`/top` — рейтинг сервера."),
+            "support": ("💬 Поддержка", "`/support` — обратиться в поддержку и сообщить об ошибке."),
+        }
+        if selected:
+            title, text = sections[selected]
+            embed = base_embed(title=f"📖 Справка · {title}", description=text, guild_name=guild_name)
+        else:
+            embed = base_embed(title="📖 Справочник Lounge", description=(
+                "Выберите категорию: `L.help игры` или `/help категория:игры`.\n"
+                "Все публичные команды работают через `/`, **L.** и **l.**.\n"
+                "Аргументы префиксных команд указываются после имени команды; приватные ответы приходят в ЛС."),
+                guild_name=guild_name)
+            for key, (title, text) in sections.items():
+                embed.add_field(name=title, value=f"`L.help {key}`\n{text}", inline=False)
+            embed.add_field(name="🛠 Разработчик", value="`L.help developer` — закрытая справка создателя.", inline=False)
+        await interaction.response.send_message(embed=embed)
+
+    @nextcord.slash_command(name="rules", description="Правила, роли и награды Мафии")
+    async def rules(self, interaction: Interaction,
+                    mode: str = nextcord.SlashOption(name="режим", required=False, default="all",
+                        choices={"Все режимы": "all", "Мафия Lite": "lite", "Мафия Full": "full"})):
+        guild_name = interaction.guild.name if interaction.guild else "Lounge"
+        embed = base_embed(title="🎭 Правила Мафии", guild_name=guild_name)
         embed.add_field(
             name="🎭 Режимы и роли",
             value=(
@@ -70,7 +116,15 @@ class Lobby(commands.Cog):
                    "При отмене награды не начисляются. Профиль и рейтинг отдельные на каждом сервере."),
             inline=False,
         )
-        embed.add_field(name="🎩 Пригласить Lounge", value=f"[Добавить бота на сервер]({BOT_INVITE_URL})", inline=False)
+        if mode == "lite":
+            embed.title = "🎭 Правила · Мафия Lite"
+            embed.set_field_at(0, name="🎭 Режим и роли", value=(
+                "**4–6 игроков:** один мафиози, остальные — мирные.\n"
+                "🎩 Мафия выбирает жертву ночью.\n👤 Мирные ищут мафию и голосуют днём."), inline=False)
+        elif mode == "full":
+            embed.title = "🎭 Правила · Мафия Full"
+            first = embed.fields[0]
+            embed.set_field_at(0, name=first.name, value=first.value.split("\n", 1)[1], inline=False)
         await interaction.response.send_message(embed=embed)
 
     @nextcord.slash_command(name="support", description="Поддержка Lounge и обратная связь")

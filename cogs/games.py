@@ -363,12 +363,7 @@ class Games(commands.Cog):
             except nextcord.HTTPException:
                 log.warning("Ведущий изменён, но не удалось обновить лобби %s", lobby.game_id)
 
-    @nextcord.slash_command(name="host-transfer", description="Передать ведение участнику текущей игры")
-    async def host_transfer(self, interaction: Interaction,
-                            member: nextcord.Member = nextcord.SlashOption(name="участник", description="Новый ведущий")):
-        await self._transfer_host(interaction, member)
-
-    @nextcord.slash_command(name="transfer-host", description="Алиас /host-transfer: передать ведение")
+    @nextcord.slash_command(name="transfer-host", description="Передать ведение участнику текущей игры")
     async def transfer_host(self, interaction: Interaction,
                             member: nextcord.Member = nextcord.SlashOption(name="участник", description="Новый ведущий")):
         await self._transfer_host(interaction, member)

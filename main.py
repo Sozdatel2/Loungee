@@ -7,6 +7,8 @@ from nextcord.ext import commands
 from dotenv import load_dotenv
 from database.db import init_db
 from utils.embeds import footer_text
+from utils.prefix import register_prefix, PrefixInteraction
+from utils.cooldowns import UserCooldown
 
 load_dotenv()
 
@@ -24,7 +26,34 @@ class Lounge(commands.Bot):
         intents = nextcord.Intents.default()
         intents.message_content = True
         intents.members = True
-        super().__init__(command_prefix="l.", intents=intents, help_command=None)
+        super().__init__(command_prefix=("L.", "l."), intents=intents, help_command=None)
+        self.command_cooldown = UserCooldown()
+        self.add_application_command_check(self._slash_cooldown)
+        self.add_check(self._prefix_cooldown)
+
+    async def _slash_cooldown(self, interaction):
+        return await self.command_cooldown.allow(interaction)
+
+    async def _prefix_cooldown(self, ctx):
+        if getattr(ctx.command, "_slash_source", None) is not None:
+            return True  # The common slash check charges bridged commands exactly once.
+        return await self.command_cooldown.allow(PrefixInteraction(ctx))
+
+    def add_application_command(self, command, **kwargs):
+        super().add_application_command(command, **kwargs)
+        if hasattr(self, "all_commands"):
+            register_prefix(self, command)
+
+    def remove_cog(self, name):
+        cog = self.get_cog(name)
+        if cog is None:
+            return super().remove_cog(name)
+        for command in list(self.commands):
+            source = getattr(command, "_slash_source", None)
+            if source is not None and source.parent_cog is cog:
+                self.remove_command(command.name)
+        return super().remove_cog(name)
+
 
 bot = Lounge()
 
@@ -57,6 +86,45 @@ async def require_initialization(interaction: Interaction):
         )
         return False
     return True
+
+
+@bot.check
+async def prefix_ready(ctx):
+    if not _initialized:
+        ctx._lounge_response_sent = True
+        await ctx.send("🎩 Lounge ещё готовится к приёму гостей. Попробуйте чуть позже, сэр.")
+        return False
+    return True
+
+
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandNotFound):
+        return
+    if isinstance(error, commands.NotOwner):
+        await ctx.send("Эта команда доступна только создателю бота, сэр.")
+    elif isinstance(error, commands.UserInputError):
+        await ctx.send(f"Не удалось разобрать аргументы. Посмотрите L.help, сэр. {str(error)[:300]}",
+                       allowed_mentions=nextcord.AllowedMentions.none())
+    elif isinstance(error, commands.CheckFailure):
+        if not getattr(ctx, "_lounge_response_sent", False):
+            await ctx.send("Эта команда сейчас недоступна или у вас нет прав, сэр.")
+    else:
+        log.error("Ошибка префиксной команды %s", ctx.command, exc_info=(type(error), error, error.__traceback__))
+        await ctx.send("Не удалось выполнить команду, сэр. Попробуйте позже.")
+
+
+@bot.event
+async def on_application_command_error(interaction, error):
+    if isinstance(error, nextcord.ApplicationCheckFailure):
+        if not interaction.response.is_done():
+            await interaction.response.send_message(
+                "Эта команда сейчас недоступна или у вас нет прав, сэр.", ephemeral=True)
+        return
+    original = getattr(error, "original", error)
+    log.error("Ошибка slash-команды", exc_info=(type(original), original, original.__traceback__))
+    if not interaction.response.is_done():
+        await interaction.response.send_message("Не удалось выполнить команду, сэр. Попробуйте позже.", ephemeral=True)
 
 
 @bot.event

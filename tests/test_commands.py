@@ -15,9 +15,15 @@ from test_stability import http_error
 def request(uid=1):
     i = interaction(uid)
     i.channel_id = 2
-    i.guild = SimpleNamespace(name='test')
+    i.guild = SimpleNamespace(name='test', id=1)
+    i.bot = SimpleNamespace()
+    i.command = SimpleNamespace(name="test")
+    i.author = i.user
+    i.author.send = AsyncMock()
+    i.channel = SimpleNamespace(id=2)
+    i.send = AsyncMock()
     i.response.defer = AsyncMock()
-    i.followup = SimpleNamespace(send=AsyncMock())
+    i.followup = SimpleNamespace(send=i.author.send)
     return i
 
 
@@ -31,9 +37,12 @@ class DeveloperTests(unittest.IsolatedAsyncioTestCase):
         for command, args in [(Developer.servers, (1,)), (Developer.get_sid, ('test',)),
                               (Developer.get_inv, ('123',))]:
             i = request()
-            await command.callback(self.cog, i, *args)
+            if command is Developer.get_sid:
+                await command.callback(self.cog, i, name=args[0])
+            else:
+                await command.callback(self.cog, i, *args)
             self.assertIn('только создателю', i.followup.send.call_args.args[0])
-            self.assertTrue(i.followup.send.call_args.kwargs['ephemeral'])
+            i.send.assert_not_awaited()
         self.bot.get_guild.assert_not_called()
 
     async def test_owner_lookup_failure_denies_access(self):
@@ -50,12 +59,12 @@ class DeveloperTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('3/3', embed.description)
         self.assertEqual(embed.description.count('•'), 3)
         self.assertLess(len(embed), 6000)
-        self.assertTrue(i.response.defer.call_args.kwargs['ephemeral'])
+        i.send.assert_not_awaited()
 
     async def test_duplicate_server_names_are_not_silently_selected(self):
         self.bot.guilds = [SimpleNamespace(name='Test', id=123), SimpleNamespace(name='Test', id=456)]
         i = request()
-        await Developer.get_sid.callback(self.cog, i, ' test ')
+        await Developer.get_sid.callback(self.cog, i, name=' test ')
         text = i.followup.send.call_args.kwargs['embed'].description
         self.assertIn('123', text)
         self.assertIn('456', text)
@@ -74,7 +83,7 @@ class DeveloperTests(unittest.IsolatedAsyncioTestCase):
         self.bot.get_guild.return_value = guild
         i = request()
         await Developer.get_inv.callback(self.cog, i, '123')
-        i.followup.send.assert_awaited_once_with('https://discord.gg/test', ephemeral=True)
+        i.followup.send.assert_awaited_once_with('https://discord.gg/test', allowed_mentions=unittest.mock.ANY)
         guild.create_invite.assert_not_called()
 
     async def test_missing_invite_permissions_are_explained(self):
@@ -92,7 +101,7 @@ class DeveloperTests(unittest.IsolatedAsyncioTestCase):
         i = request()
         await Developer.get_inv.callback(self.cog, i, '123')
         guild.invites.assert_not_awaited()
-        i.followup.send.assert_awaited_once_with('https://discord.gg/vanity', ephemeral=True)
+        i.followup.send.assert_awaited_once_with('https://discord.gg/vanity', allowed_mentions=unittest.mock.ANY)
 
 
 class TransferTests(unittest.IsolatedAsyncioTestCase):
@@ -159,12 +168,11 @@ class TransferTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(g.host_id, 1)
             self.assertTrue(i.response.send_message.call_args.kwargs['ephemeral'])
 
-    async def test_both_aliases_use_same_handler(self):
+    async def test_transfer_command_uses_shared_handler(self):
         cog = SimpleNamespace(_transfer_host=AsyncMock())
         i, member = request(), object()
-        await Games.host_transfer.callback(cog, i, member)
         await Games.transfer_host.callback(cog, i, member)
-        self.assertEqual(cog._transfer_host.await_count, 2)
+        self.assertEqual(cog._transfer_host.await_count, 1)
 
     async def test_support_uses_provided_link(self):
         i = request()
