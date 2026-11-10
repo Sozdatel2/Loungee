@@ -26,7 +26,7 @@ class Lounge(commands.Bot):
         intents = nextcord.Intents.default()
         intents.message_content = True
         intents.members = True
-        super().__init__(command_prefix=("LL.", "ll."), intents=intents, help_command=None)
+        super().__init__(command_prefix=("L.", "l."), intents=intents, help_command=None)
         self.command_cooldown = UserCooldown()
         self.add_application_command_check(self._slash_cooldown)
         self.add_check(self._prefix_cooldown)
