@@ -7,6 +7,34 @@ from database.manager import game_manager
 from utils.embeds import base_embed
 from utils import VERSION, CHIPS_WIN, CHIPS_LOSE, GAME_NAMES, BOT_INVITE_URL
 
+def generate_progress_bar(win_rate: float, length: int = 10) -> str:
+    START_FILLED = "<:filledstart:1569798743291596810>"
+    MID_FILLED = "<:filledmiddle:1569798739718180985>"
+    END_FILLED = "<:filledend:1569798741383450634>"
+    START_UNFILLED = "<:unfilledstart:1569798738082267176>"
+    MID_UNFILLED = "<:unfilledmiddle:1569798736509534311>"
+    END_UNFILLED = "<:unfilledend:1569798734483820596>"
+
+    filled_count = round((win_rate / 100) * length)
+
+    if filled_count > 0:
+        bar = START_FILLED
+    else:
+        bar = START_UNFILLED
+
+    for i in range(1, length - 1):
+        if i < filled_count:
+            bar += MID_FILLED
+        else:
+            bar += MID_UNFILLED
+
+    if filled_count >= length:
+        bar += END_FILLED
+    else:
+        bar += END_UNFILLED
+
+    return bar
+
 class Lobby(commands.Cog):
     """Общее лобби — приветствие, help, инфо, профиль, топ."""
 
@@ -167,9 +195,22 @@ class Lobby(commands.Cog):
         embed.add_field(name="🎲 Партий", value=f"`{played}`", inline=True)
         embed.add_field(name="🏆 Побед", value=f"`{won}`", inline=True)
         embed.add_field(name="🪙 Фишек", value=f"`{chips}`", inline=True)
-        win_rate = f"{won / played * 100:.1f}%" if played else "— (ещё нет партий)"
-        embed.add_field(name="📊 Процент побед", value=win_rate, inline=True)
 
+        # --- Блок с прогресс-баром ---
+        if played > 0:
+            rate_num = (won / played) * 100
+            rate_text = f"{rate_num:.1f}%"
+            bar = generate_progress_bar(rate_num)
+            bar_value = f"{bar}\n**{rate_text}**"
+        else:
+            bar_value = "Ни одной партии не сыграно."
+
+        embed.add_field(
+            name="📊 Процент побед", 
+            value=bar_value, 
+            inline=False
+        )
+        
         await interaction.response.send_message(embed=embed)
 
     @nextcord.slash_command(name="top", description="Топ игроков по фишкам")

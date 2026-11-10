@@ -1,4 +1,4 @@
-VERSION = "0.1.1 Beta"
+VERSION = "0.1.2 Beta"
 CHIPS_WIN = 15
 CHIPS_LOSE = 3
 
