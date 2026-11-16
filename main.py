@@ -68,7 +68,7 @@ async def initialize_bot():
             return
         await init_db()
         log.info("🗄️ База данных инициализирована")
-        for extension in ("cogs.lobby", "cogs.games", "cogs.mafia", "cogs.developer"):
+        for extension in ("cogs.lobby", "cogs.games", "cogs.mafia", "cogs.developer", "cogs.casino", "cogs.deck_of_fates"):
             if extension not in bot.extensions:
                 bot.load_extension(extension)
                 log.info("✅ Загружен модуль: %s", extension)
