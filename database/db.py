@@ -179,3 +179,26 @@ async def record_game_result(
         raise
     finally:
         await db.close()
+
+async def add_chips(guild_id: int, user_id: int, amount: int) -> bool:
+    """Добавляет (или отнимает, если amount < 0) фишки игроку."""
+    if amount == 0:
+        return True
+
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        cursor = await db.execute(
+            "UPDATE players SET chips = chips + ? WHERE guild_id = ? AND user_id = ?",
+            (amount, guild_id, user_id),
+        )
+        if cursor.rowcount != 1:
+            raise ValueError(f"Игрок {user_id} не найден на сервере {guild_id}")
+
+        await db.commit()
+        return True
+    except Exception:
+        await db.rollback()
+        raise
+    finally:
+        await db.close()
