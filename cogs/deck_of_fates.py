@@ -386,7 +386,7 @@ class DeckOfFates(commands.Cog):
 
     def create_embed(self, game):
         embed = nextcord.Embed(
-            title="🔮 DECK OF FATES",
+            title="🔮 Deck of Fates (DoF)",
             description=(
                 "Добро пожаловать на поле судьбы, господа.\n"
                 "Каждая карта приближает вас к победе."
@@ -473,7 +473,7 @@ class DeckOfFates(commands.Cog):
             результат = "🤝 Ничья! Судьба не выбрала фаворита."
 
         embed = nextcord.Embed(
-            title="👑 ИГРА ЗАВЕРШЕНА",
+            title="👑 Игра завершена",
             description=(
                 f"{результат}\n\n"
                 f"**<@{p1}>:** `{s1}` очков\n"
