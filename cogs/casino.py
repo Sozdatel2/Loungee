@@ -76,7 +76,7 @@ class Casino(commands.Cog):
         )
 
         embed = nextcord.Embed(
-            title="♠ КАЗИНО ДЖЕНТЛЬМЕНОВ ♠",
+            title="♠ Джентельменское казино ♠",
             description=(
                 "```ansi\n"
                 "\u001b[33m"
